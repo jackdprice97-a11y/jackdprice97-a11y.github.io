@@ -280,36 +280,69 @@ Stories:
 {stories}"""
 
 
-def ask_claude(key, batch):
-    lines = []
-    for n, story in enumerate(batch):
-        versions = story["versions"]
-        summary = next((v["d"] for v in versions if v["d"]), "")
-        lines.append(f"{n}. HEADLINES: " + " | ".join(v["t"] for v in versions[:4]) + f"\n   SUMMARY: {summary}")
+STRAP_FIX_PROMPT = """These TV news straplines are too long. Rewrite each one shorter so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; keep the facts, the attribution of anything alleged, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
+
+Reply with only a JSON array: [{{"n": 0, "top": "...", "bottom": "..."}}]
+
+{straps}"""
+
+
+def claude(key, prompt):
     body = {
         "model": STRAP_MODEL,
-        "max_tokens": 4000,
-        "messages": [
-            {
-                "role": "user",
-                "content": STRAP_PROMPT.format(top=STRAP_TOP, bottom=STRAP_BOTTOM, stories="\n".join(lines)),
-            }
-        ],
+        "max_tokens": 6000,
+        "thinking": {"type": "disabled"},  # otherwise the reply budget goes on reasoning
+        "messages": [{"role": "user", "content": prompt}],
     }
     request = urllib.request.Request(
         "https://api.anthropic.com/v1/messages",
         data=json.dumps(body).encode(),
         headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=90) as response:
+    with urllib.request.urlopen(request, timeout=120) as response:
         reply = json.loads(response.read())
     text = "".join(block.get("text", "") for block in reply.get("content", []))
     found = re.search(r"\[.*\]", text, re.S)
-    straps = {}
-    for entry in json.loads(found.group(0)) if found else []:
-        top, bottom = fit(str(entry.get("top", "")), STRAP_TOP), fit(str(entry.get("bottom", "")), STRAP_BOTTOM)
+    if not found:
+        raise ValueError(f"no list in reply (stop: {reply.get('stop_reason')})")
+    out = {}
+    for entry in json.loads(found.group(0)):
+        top = re.sub(r"\s+", " ", str(entry.get("top", ""))).strip().rstrip(".")
+        bottom = re.sub(r"\s+", " ", str(entry.get("bottom", ""))).strip().rstrip(".")
         if top and bottom:
-            straps[int(entry["n"])] = {"top": top, "bottom": bottom}
+            out[int(entry["n"])] = {"top": top, "bottom": bottom}
+    return out
+
+
+def too_long(strap):
+    return len(strap["top"]) > STRAP_TOP or len(strap["bottom"]) > STRAP_BOTTOM
+
+
+def ask_claude(key, batch):
+    lines = []
+    for n, story in enumerate(batch):
+        versions = story["versions"]
+        summary = next((v["d"] for v in versions if v["d"]), "")
+        lines.append(f"{n}. HEADLINES: " + " | ".join(v["t"] for v in versions[:4]) + f"\n   SUMMARY: {summary}")
+    # ask for a little under the real limits: the model miscounts by a few characters
+    straps = claude(key, STRAP_PROMPT.format(top=STRAP_TOP - 4, bottom=STRAP_BOTTOM - 6, stories="\n".join(lines)))
+
+    for _ in range(2):  # send back any that are still over, with the real counts
+        over = {n: strap for n, strap in straps.items() if too_long(strap)}
+        if not over:
+            break
+        notes = []
+        for n, strap in over.items():
+            notes.append(
+                f'{n}. top ({len(strap["top"])} characters, limit {STRAP_TOP}): {strap["top"]}\n'
+                f'   bottom ({len(strap["bottom"])} characters, limit {STRAP_BOTTOM}): {strap["bottom"]}'
+            )
+        try:
+            straps.update(claude(key, STRAP_FIX_PROMPT.format(top=STRAP_TOP, bottom=STRAP_BOTTOM, straps="\n".join(notes))))
+        except Exception:
+            break
+    for strap in straps.values():  # last resort: never go over
+        strap["top"], strap["bottom"] = fit(strap["top"], STRAP_TOP), fit(strap["bottom"], STRAP_BOTTOM)
     return straps
 
 
