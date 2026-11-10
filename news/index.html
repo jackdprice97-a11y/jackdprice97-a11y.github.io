@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Front Pages</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600;6..72,700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: a newspaper front page. Stories several papers carry lead in a
+   two-column block; everything else runs below as a dense single-file list. */
+:root {
+  --paper: #f6f7f4;
+  --card: #ffffff;
+  --ink: #15191c;
+  --muted: #5b646b;
+  --rule: #d5dad6;
+  --accent: #0b5a6f;
+  --accent-soft: #dcecef;
+  --display: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #101416;
+    --card: #181e21;
+    --ink: #e9edea;
+    --muted: #98a3a8;
+    --rule: #2b3438;
+    --accent: #7cc6d6;
+    --accent-soft: #1d3339;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 16px/1.5 var(--body);
+}
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px 48px; }
+
+header.mast {
+  padding: 20px 0 12px;
+  border-bottom: 3px double var(--ink);
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px;
+}
+.mast h1 {
+  margin: 0; font: 700 clamp(34px, 9vw, 56px)/1 var(--display); letter-spacing: -0.02em;
+}
+.mast .date { color: var(--muted); font-size: 14px; margin-left: auto; text-align: right; }
+
+.controls { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+.search {
+  width: 100%; font: 400 16px var(--body); color: var(--ink); background: var(--card);
+  border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px;
+}
+.search::placeholder { color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font: 500 13px/1 var(--body); padding: 8px 12px; border-radius: 999px;
+  border: 1px solid var(--rule); background: transparent; color: var(--muted); cursor: pointer;
+}
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.chip.down { text-decoration: line-through; opacity: .6; }
+.prefer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.prefer select {
+  font: 500 13px var(--body); color: var(--ink); background: var(--card);
+  border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px;
+}
+
+h2.section {
+  font: 600 12px/1 var(--body); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent); margin: 24px 0 4px;
+}
+.lead { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0 32px; }
+.story[hidden] { display: none; }
+.story { padding: 16px 0; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 8px; }
+.story h3 { margin: 0; font: 600 20px/1.22 var(--display); text-wrap: balance; }
+.lead .story h3 { font-size: 24px; font-weight: 700; }
+.lead + .section + .lead .story h3 { font-size: 20px; font-weight: 600; }
+.story h3 a { text-decoration: none; }
+.story h3 a:hover { text-decoration: underline; text-decoration-thickness: 1px; }
+.story p { margin: 0; color: var(--muted); font-size: 15px; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.meta .when { margin-right: 4px; font-variant-numeric: tabular-nums; }
+.copy {
+  font: 600 12px/1 var(--body); text-decoration: none; padding: 7px 10px; border-radius: 6px;
+  border: 1px solid var(--rule); background: var(--card); color: var(--ink);
+}
+.copy:hover { border-color: var(--accent); }
+.copy.current { border-color: var(--accent); background: var(--accent-soft); }
+.note { color: var(--muted); font-size: 14px; padding: 24px 0; }
+footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="mast">
+    <h1>Front Pages</h1>
+    <div class="date"><span id="today"></span><br><span id="updated">Loading…</span></div>
+  </header>
+
+  <div class="controls">
+    <input class="search" id="search" type="search" placeholder="Search the past 36 hours" aria-label="Search stories from the past 36 hours" autocomplete="off">
+    <div class="chips" id="chips" aria-label="Papers to show"></div>
+    <label class="prefer" for="prefer">When several papers have a story, show
+      <select id="prefer"></select>
+    </label>
+  </div>
+
+  <main id="main"><p class="note">Loading today's headlines…</p></main>
+  <footer id="footer"></footer>
+</div>
+
+<script>
+(function () {
+  var state = { data: null, off: {}, prefer: "" };
+  try {
+    state.off = JSON.parse(localStorage.getItem("news.off") || "{}");
+    state.prefer = localStorage.getItem("news.prefer") || "";
+  } catch (e) {}
+  function save() {
+    try {
+      localStorage.setItem("news.off", JSON.stringify(state.off));
+      localStorage.setItem("news.prefer", state.prefer);
+    } catch (e) {}
+  }
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+  function ago(iso) {
+    var mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+    if (mins < 60) return mins + " min ago";
+    var hours = Math.round(mins / 60);
+    if (hours < 24) return hours + (hours === 1 ? " hour ago" : " hours ago");
+    return "yesterday";
+  }
+
+  function renderControls() {
+    var names = {};
+    var chips = document.getElementById("chips");
+    var select = document.getElementById("prefer");
+    chips.textContent = "";
+    select.textContent = "";
+    var first = el("option", null, "whichever is first");
+    first.value = "";
+    select.appendChild(first);
+    state.data.sources.forEach(function (source) {
+      names[source.id] = source.name;
+      var chip = el("button", "chip" + (source.ok ? "" : " down"), source.name);
+      chip.type = "button";
+      chip.setAttribute("aria-pressed", String(!state.off[source.id]));
+      chip.title = source.ok ? source.count + " stories" : "Could not be reached this hour";
+      chip.addEventListener("click", function () {
+        if (state.off[source.id]) delete state.off[source.id]; else state.off[source.id] = true;
+        save(); renderControls(); renderStories();
+      });
+      chips.appendChild(chip);
+      var option = el("option", null, source.name);
+      option.value = source.id;
+      select.appendChild(option);
+    });
+    select.value = state.prefer;
+    select.onchange = function () { state.prefer = select.value; save(); renderStories(); };
+    state.names = names;
+  }
+
+  function storyNode(story) {
+    var versions = story.versions.filter(function (v) { return !state.off[v.s]; });
+    if (!versions.length) return null;
+    var shown = versions.filter(function (v) { return v.s === state.prefer; })[0] || versions[0];
+    var node = el("article", "story");
+    var heading = el("h3");
+    var link = el("a", null, shown.t);
+    link.href = shown.u; link.target = "_blank"; link.rel = "noopener";
+    heading.appendChild(link);
+    node.appendChild(heading);
+    if (shown.d) node.appendChild(el("p", null, shown.d));
+    var meta = el("div", "meta");
+    meta.appendChild(el("span", "when", ago(story.time)));
+    versions.forEach(function (v) {
+      var copy = el("a", "copy" + (v === shown ? " current" : ""), state.names[v.s] || v.s);
+      copy.href = v.u; copy.target = "_blank"; copy.rel = "noopener";
+      copy.title = v.t;
+      meta.appendChild(copy);
+    });
+    node.appendChild(meta);
+    node.dataset.papers = versions.length;
+    return node;
+  }
+
+  function renderStories() {
+    var main = document.getElementById("main");
+    main.textContent = "";
+    var terms = (state.query || "").toLowerCase().split(/\s+/).filter(Boolean);
+    if (terms.length) {
+      var found = el("div");
+      state.data.stories.filter(function (story) {
+        var text = story.versions.filter(function (v) { return !state.off[v.s]; })
+          .map(function (v) { return v.t + " " + v.d; }).join(" ").toLowerCase();
+        return terms.every(function (term) { return text.indexOf(term) !== -1; });
+      }).sort(function (a, b) { return a.time < b.time ? 1 : -1; })
+        .forEach(function (story) { var node = storyNode(story); if (node) found.appendChild(node); });
+      var count = found.children.length;
+      main.appendChild(el("h2", "section", count + (count === 1 ? " story" : " stories") + " in the past 36 hours"));
+      if (count) main.appendChild(found);
+      else main.appendChild(el("p", "note", "Nothing matches. Try fewer or different words."));
+      return;
+    }
+    var lead = el("div", "lead"), light = el("div", "lead"), rest = el("div");
+    state.data.stories.forEach(function (story) {
+      var node = storyNode(story);
+      if (!node) return;
+      if (story.light) { if (light.children.length < 8) light.appendChild(node); }
+      else (Number(node.dataset.papers) > 1 ? lead : rest).appendChild(node);
+    });
+    if (lead.children.length) {
+      main.appendChild(el("h2", "section", "Main stories"));
+      main.appendChild(lead);
+    }
+    if (light.children.length) {
+      main.appendChild(el("h2", "section", "Lighter side"));
+      main.appendChild(light);
+    }
+    if (rest.children.length) {
+      main.appendChild(el("h2", "section", lead.children.length ? "Also today" : "Today"));
+      main.appendChild(rest);
+      var extra = Array.prototype.slice.call(rest.children, 25);
+      if (extra.length && !state.showAll) {
+        extra.forEach(function (node) { node.hidden = true; });
+        var more = el("button", "chip", "Show " + extra.length + " more stories");
+        more.type = "button";
+        more.style.marginTop = "16px";
+        more.addEventListener("click", function () { state.showAll = true; renderStories(); });
+        main.appendChild(more);
+      }
+    }
+    if (!lead.children.length && !rest.children.length && !light.children.length) {
+      main.appendChild(el("p", "note", "No stories to show. Turn a paper back on above."));
+    }
+  }
+
+  function render(data) {
+    // single-paper stories: newest first
+    var multi = data.stories.filter(function (s) { return s.versions.length > 1; });
+    var single = data.stories.filter(function (s) { return s.versions.length < 2; })
+      .sort(function (a, b) { return a.time < b.time ? 1 : -1; });
+    data.stories = multi.concat(single);
+    state.data = data;
+    document.getElementById("updated").textContent = "Updated " + ago(data.updated);
+    renderControls();
+    renderStories();
+    var down = data.sources.filter(function (s) { return !s.ok; }).map(function (s) { return s.name; });
+    document.getElementById("footer").textContent =
+      (down.length ? "Could not reach this hour: " + down.join(", ") + ". " : "") +
+      "Headlines and summaries belong to each paper. Tap a paper's name to read its version on its own site.";
+  }
+
+  document.getElementById("search").addEventListener("input", function (event) {
+    state.query = event.target.value;
+    if (state.data) renderStories();
+  });
+
+  document.getElementById("today").textContent = new Date().toLocaleDateString("en-GB", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric"
+  });
+
+  fetch("data.json?" + Date.now(), { cache: "no-store" })
+    .then(function (response) {
+      if (!response.ok) throw new Error(response.status);
+      return response.json();
+    })
+    .then(render)
+    .catch(function () {
+      document.getElementById("updated").textContent = "";
+      document.getElementById("main").innerHTML =
+        '<p class="note">No headlines yet. The first collection runs within the hour after this page goes live. Reload then.</p>';
+    });
+})();
+</script>
+</body>
+</html>
