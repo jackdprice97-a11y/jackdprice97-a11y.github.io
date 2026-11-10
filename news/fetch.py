@@ -272,9 +272,12 @@ House style:
 - Present tense and active voice wherever it applies ("PM announces", "Police arrest man", "Court hears"). Use the past only for a completed event that needs it ("after crash killed three").
 - Each line is a single clear statement, direct and punchy, in the manner of a rolling news channel strap. No semicolons, ever. Do not bolt two fragments together: join ideas with "as", "after", "with", "amid" or a comma, or drop the lesser fact.
 - The two lines must not repeat each other's words or facts. Read together, they tell the whole story to someone who has not heard it.
+- Clarity comes first. A viewer glancing up with no background must understand each line at once. Say plainly what was said, done or decided: write "says UK should rejoin EU in the long term", never "goes further than the PM". No comparisons, allusions or references that only make sense if you already know the story.
+- Give people their role the first time they appear ("Scottish Labour leader Michael Marra"), and do not put a second person in the line unless the story is about them too.
 - Be specific: names, places, numbers, ages. No vague filler ("row erupts", "questions raised", "what we know"), no puns, no questions, no teasing.
 - Use only the facts given. Attribute anything alleged, claimed or unproven (police say, court hears, he denies); never state an allegation as fact. Do not call someone a victim or offender unless a court has found it.
 - Write the United States as U.S. (with full stops), never US.
+- Prime Minister can be shortened to PM when space is tight.
 - Plain sentence case, British spelling, numerals for numbers, no full stop at the end, no emoji. Use a name a viewer will recognise.
 - Count every character including spaces. Never go over either limit. Shorter is fine.
 
