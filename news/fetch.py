@@ -265,11 +265,12 @@ def rough_strap(story):
 STRAP_PROMPT = """You are the output editor on a British TV news channel, writing straplines: the two-line captions at the bottom of the screen.
 
 For each numbered story below, write:
-- top: at most {top} characters. Who or what, and what is happening: the story in one line.
-- bottom: at most {bottom} characters. The next most important facts: the detail a viewer needs after reading the top line (who, where, how many, why, what happens next, or the response).
+- top: at most {top} characters. A punchy headline: who or what, and what is happening.
+- bottom: at most {bottom} characters. One flowing sentence that carries the story on: the detail a viewer needs after reading the top line (who, where, how many, why, what happens next, or the response).
 
 House style:
 - Present tense and active voice wherever it applies ("PM announces", "Police arrest man", "Court hears"). Use the past only for a completed event that needs it ("after crash killed three").
+- Each line is a single clear statement, direct and punchy, in the manner of a rolling news channel strap. No semicolons, ever. Do not bolt two fragments together: join ideas with "as", "after", "with", "amid" or a comma, or drop the lesser fact.
 - The two lines must not repeat each other's words or facts. Read together, they tell the whole story to someone who has not heard it.
 - Be specific: names, places, numbers, ages. No vague filler ("row erupts", "questions raised", "what we know"), no puns, no questions, no teasing.
 - Use only the facts given. Attribute anything alleged, claimed or unproven (police say, court hears, he denies); never state an allegation as fact. Do not call someone a victim or offender unless a court has found it.
@@ -283,7 +284,7 @@ Stories:
 {stories}"""
 
 
-STRAP_FIX_PROMPT = """These TV news straplines are too long. Rewrite each one shorter so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; keep the present tense, the facts, the attribution of anything alleged, and U.S. written with full stops, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
+STRAP_FIX_PROMPT = """These TV news straplines break house rules (too long, or they use a semicolon). Rewrite each one so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; use no semicolons, keep each line a single flowing statement, keep the present tense, the facts, the attribution of anything alleged, and U.S. written with full stops, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
 
 Reply with only a JSON array: [{{"n": 0, "top": "...", "bottom": "..."}}]
 
@@ -323,6 +324,9 @@ def claude(key, prompt):
 
 
 def too_long(strap):
+    """True when a strap needs sending back: over length, or uses a semicolon."""
+    if ";" in strap["top"] or ";" in strap["bottom"]:
+        return True
     return len(strap["top"]) > STRAP_TOP or len(strap["bottom"]) > STRAP_BOTTOM
 
 
@@ -350,7 +354,8 @@ def ask_claude(key, batch):
         except Exception:
             break
     for strap in straps.values():  # last resort: never go over
-        strap["top"], strap["bottom"] = fit(strap["top"], STRAP_TOP), fit(strap["bottom"], STRAP_BOTTOM)
+        strap["top"] = fit(strap["top"].replace(";", ","), STRAP_TOP)
+        strap["bottom"] = fit(strap["bottom"].replace(";", ","), STRAP_BOTTOM)
     return straps
 
 
