@@ -482,6 +482,8 @@ def main():
         print("No stories fetched; keeping the previous data.json", file=sys.stderr)
         return 1
     add_straps(data, target)
+    # stamp the finish time: writing straplines can take minutes, and the page shows this
+    data["updated"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
     data["brief"] = STRAP_PROMPT.format(top=STRAP_TOP - 4, bottom=STRAP_BOTTOM - 6, stories="{stories}")
     target.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"Wrote {len(data['stories'])} stories to {target}")
