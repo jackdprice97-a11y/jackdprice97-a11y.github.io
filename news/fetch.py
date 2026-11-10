@@ -62,7 +62,7 @@ SUMMARY_CHARS = 220
 # Straplines: two caption lines per story, as on a TV news channel.
 STRAP_TOP = 43          # most characters on the top line
 STRAP_BOTTOM = 75       # most characters on the bottom line
-STRAP_MODEL = "claude-haiku-5-5"
+STRAP_MODEL = "claude-sonnet-5-5"
 STRAP_BATCH = 20        # stories per request
 STRAP_MAX_PER_RUN = 160 # new stories written per run; the rest wait for the next
 USER_AGENT = (
@@ -262,17 +262,20 @@ def rough_strap(story):
     return {"top": fit(first["t"], STRAP_TOP), "bottom": fit(bottom, STRAP_BOTTOM), "auto": True}
 
 
-STRAP_PROMPT = """You write straplines (the two-line captions at the bottom of the screen) for a British TV news channel.
+STRAP_PROMPT = """You are the output editor on a British TV news channel, writing straplines: the two-line captions at the bottom of the screen.
 
 For each numbered story below, write:
-- top: at most {top} characters. The core of the story.
-- bottom: at most {bottom} characters. The next most important facts.
+- top: at most {top} characters. Who or what, and what is happening: the story in one line.
+- bottom: at most {bottom} characters. The next most important facts: the detail a viewer needs after reading the top line (who, where, how many, why, what happens next, or the response).
 
-Rules:
-- Count every character including spaces. Never go over either limit. Shorter is fine; aim to leave two or three characters spare.
-- The two lines must not repeat each other's words or facts. Read together, they tell the story to someone who has not heard it.
-- Use only the facts given. Attribute anything alleged or unproven (police say, court hears, report claims); never state an allegation as fact.
-- Plain sentence case, British spelling, present tense, no full stop at the end, no emoji.
+House style:
+- Present tense and active voice wherever it applies ("PM announces", "Police arrest man", "Court hears"). Use the past only for a completed event that needs it ("after crash killed three").
+- The two lines must not repeat each other's words or facts. Read together, they tell the whole story to someone who has not heard it.
+- Be specific: names, places, numbers, ages. No vague filler ("row erupts", "questions raised", "what we know"), no puns, no questions, no teasing.
+- Use only the facts given. Attribute anything alleged, claimed or unproven (police say, court hears, he denies); never state an allegation as fact. Do not call someone a victim or offender unless a court has found it.
+- Write the United States as U.S. (with full stops), never US.
+- Plain sentence case, British spelling, numerals for numbers, no full stop at the end, no emoji. Use a name a viewer will recognise.
+- Count every character including spaces. Never go over either limit. Shorter is fine.
 
 Reply with only a JSON array, one object per story: [{{"n": 0, "top": "...", "bottom": "..."}}]
 
@@ -280,18 +283,24 @@ Stories:
 {stories}"""
 
 
-STRAP_FIX_PROMPT = """These TV news straplines are too long. Rewrite each one shorter so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; keep the facts, the attribution of anything alleged, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
+STRAP_FIX_PROMPT = """These TV news straplines are too long. Rewrite each one shorter so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; keep the present tense, the facts, the attribution of anything alleged, and U.S. written with full stops, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
 
 Reply with only a JSON array: [{{"n": 0, "top": "...", "bottom": "..."}}]
 
 {straps}"""
 
 
+def house_style(text):
+    text = re.sub(r"\s+", " ", str(text)).strip()
+    text = re.sub(r"\bUS\b(?!\.)", "U.S.", text)  # house style: U.S., never US
+    return text[:-1] if text.endswith(".") and not text.endswith("U.S.") else text
+
+
 def claude(key, prompt):
     body = {
         "model": STRAP_MODEL,
         "max_tokens": 6000,
-        "thinking": {"type": "disabled"},  # otherwise the reply budget goes on reasoning
+        "thinking": {"type": "between_tools"},  # answer directly, no reasoning first
         "messages": [{"role": "user", "content": prompt}],
     }
     request = urllib.request.Request(
@@ -307,8 +316,7 @@ def claude(key, prompt):
         raise ValueError(f"no list in reply (stop: {reply.get('stop_reason')})")
     out = {}
     for entry in json.loads(found.group(0)):
-        top = re.sub(r"\s+", " ", str(entry.get("top", ""))).strip().rstrip(".")
-        bottom = re.sub(r"\s+", " ", str(entry.get("bottom", ""))).strip().rstrip(".")
+        top, bottom = house_style(entry.get("top", "")), house_style(entry.get("bottom", ""))
         if top and bottom:
             out[int(entry["n"])] = {"top": top, "bottom": bottom}
     return out
