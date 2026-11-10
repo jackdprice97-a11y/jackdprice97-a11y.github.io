@@ -29,7 +29,7 @@ FEEDS = [
     ("mirror", "The Mirror", "https://www.mirror.co.uk/news/?service=rss"),
     ("metro", "Metro", "https://metro.co.uk/feed/"),
     ("telegraph", "The Telegraph", "https://www.telegraph.co.uk/rss.xml"),
-    ("times", "The Times", "https://www.thetimes.com/rss"),
+    ("gbnews", "GB News", "https://www.gbnews.com/feeds/news.rss"),
     # lighter, odd-news feeds: these fill the "Lighter side" section
     ("sky", "Sky News", "https://feeds.skynews.com/feeds/rss/strange.xml", "light"),
     ("mirror", "The Mirror", "https://www.mirror.co.uk/news/weird-news/?service=rss", "light"),
