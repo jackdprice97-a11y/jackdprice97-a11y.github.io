@@ -85,7 +85,7 @@ h2.section {
 .story { padding: 16px 0; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 8px; }
 .story h3 { margin: 0; font: 600 20px/1.22 var(--display); text-wrap: balance; }
 .lead .story h3 { font-size: 24px; font-weight: 700; }
-.lead + .section + .lead .story h3 { font-size: 20px; font-weight: 600; }
+.lead ~ .lead .story h3 { font-size: 20px; font-weight: 600; }
 .story h3 a { text-decoration: none; }
 .story h3 a:hover { text-decoration: underline; text-decoration-thickness: 1px; }
 .story p { margin: 0; color: var(--muted); font-size: 15px; }
@@ -107,6 +107,15 @@ dialog::backdrop { background: rgba(0, 0, 0, .55); }
 .strap { margin: 14px 0 8px; font-family: var(--body); overflow-wrap: anywhere; }
 .strap-top { background: var(--accent); color: var(--paper); font-weight: 600; font-size: 18px; line-height: 1.25; padding: 8px 10px; }
 .strap-bottom { background: var(--ink); color: var(--paper); font-size: 15px; line-height: 1.3; padding: 8px 10px; }
+.panel-headline { font: 600 19px/1.25 var(--display); margin: 10px 0; }
+.copytext { font: 400 16px/1.55 var(--body); background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 4px 14px; margin-top: 10px; }
+.copytext p { margin: 10px 0; color: var(--ink); }
+.copytext[hidden], .chip[hidden], .keyform[hidden], .linkish[hidden] { display: none; }
+.keyform { font-size: 13px; color: var(--muted); margin-top: 10px; }
+.keyform .search { flex: 1 1 180px; width: auto; }
+.linkish { background: none; border: 0; padding: 8px 0 0; color: var(--muted); font: 400 12px var(--body); text-decoration: underline; cursor: pointer; }
+.chip:disabled { opacity: .5; }
+dialog { max-height: calc(100% - 24px); overflow-y: auto; }
 .panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
 .counts { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .note { color: var(--muted); font-size: 14px; padding: 24px 0; }
@@ -134,9 +143,13 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
 
 <dialog id="panel" aria-labelledby="panel-title">
   <div class="panel-head">
-    <h2 class="section" id="panel-title">Strapline</h2>
+    <h2 class="section" id="panel-title">Story</h2>
     <button class="chip" id="panel-close" type="button">Close</button>
   </div>
+  <p class="panel-headline" id="panel-headline"></p>
+  <div class="meta" id="panel-papers"></div>
+
+  <h2 class="section">Strapline</h2>
   <div class="strap">
     <div class="strap-top" id="strap-top"></div>
     <div class="strap-bottom" id="strap-bottom"></div>
@@ -145,10 +158,28 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
   <div class="panel-actions">
     <button class="chip" id="strap-copy" type="button">Copy strapline</button>
     <button class="chip" id="strap-caps" type="button" aria-pressed="true">Capitals</button>
+    <button class="chip" id="strap-write" type="button">Rewrite strapline</button>
   </div>
   <div class="counts" id="strap-note"></div>
-  <h2 class="section">Read the story</h2>
-  <div class="meta" id="panel-papers"></div>
+
+  <h2 class="section">Copy</h2>
+  <div class="copytext" id="copy-text" hidden></div>
+  <div class="counts" id="copy-counts"></div>
+  <div class="panel-actions">
+    <button class="chip" id="copy-write" type="button">Write copy</button>
+    <button class="chip" id="copy-copy" type="button" hidden>Copy text</button>
+  </div>
+  <div class="counts">Rewrite strapline and Write copy use your API credits each time. Check copy against the sources before using it.</div>
+
+  <div class="counts" id="made-status" role="status"></div>
+  <form class="keyform" id="keyform" hidden>
+    <label for="key-input">Paste your Claude API key to write on request. It is saved only in this browser.</label>
+    <div class="panel-actions">
+      <input class="search" id="key-input" type="password" autocomplete="off" placeholder="sk-ant-…">
+      <button class="chip" type="submit">Save key</button>
+    </div>
+  </form>
+  <button class="linkish" id="key-forget" type="button" hidden>Remove the saved key from this browser</button>
 </dialog>
 
 <script>
@@ -238,45 +269,214 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
     return node;
   }
 
+  /*WRITE-START*/
+  var LIMIT = { top: 43, bottom: 75 };
+  var WRITER = "claude-opus-5-5";
+  function houseStyle(text) {
+    text = String(text || "").replace(/\s+/g, " ").trim().replace(/\bUS\b(?!\.)/g, "U.S.");
+    return /\.$/.test(text) && !/U\.S\.$/.test(text) ? text.slice(0, -1) : text;
+  }
+  function trimLine(text, limit) {
+    text = text.replace(/;/g, ",");
+    if (text.length <= limit) return text;
+    var cut = text.slice(0, limit + 1);
+    cut = cut.slice(0, cut.lastIndexOf(" ")).slice(0, limit);
+    return cut.replace(/[ ,;:\-–—'‘"]+$/, "");
+  }
+  function needsFix(strap) {
+    return strap.top.length > LIMIT.top || strap.bottom.length > LIMIT.bottom || /;/.test(strap.top + strap.bottom);
+  }
+  async function askWriter(key, prompt, maxTokens) {
+    var response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: WRITER,
+        max_tokens: maxTokens,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "low" },
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    if (!response.ok) {
+      var detail = "";
+      try { detail = (await response.json()).error.message; } catch (e) {}
+      var error = new Error(detail || "Request failed (" + response.status + ")");
+      error.status = response.status;
+      throw error;
+    }
+    var reply = await response.json();
+    var text = (reply.content || []).map(function (block) { return block.text || ""; }).join("").trim();
+    if (!text) throw new Error("The reply was empty. Try again.");
+    return text;
+  }
+  function readStrap(text) {
+    var found = text.match(/\{[^{}]*\}/);
+    if (!found) throw new Error("The reply could not be read. Try again.");
+    var parsed = JSON.parse(found[0]);
+    var strap = { top: houseStyle(parsed.top), bottom: houseStyle(parsed.bottom) };
+    if (!strap.top || !strap.bottom) throw new Error("The reply was incomplete. Try again.");
+    return strap;
+  }
+  function sourceText(versions, names) {
+    return versions.map(function (v) {
+      return (names[v.s] || v.s) + "\nHeadline: " + v.t + "\n" + (v.x || v.d || "");
+    }).join("\n\n");
+  }
+  // brief: the same strapline brief the hourly collection uses
+  async function writeStrap(key, brief, versions, previous) {
+    var summary = "";
+    versions.forEach(function (v) { if (!summary && (v.x || v.d)) summary = v.x || v.d; });
+    var story = "0. HEADLINES: " + versions.slice(0, 4).map(function (v) { return v.t; }).join(" | ") + "\n   SUMMARY: " + summary;
+    var prompt = brief.replace("{stories}", story) +
+      (previous ? "\n\nWrite a clearly different version from this earlier one:\n" + previous.top + "\n" + previous.bottom : "");
+    var strap = readStrap(await askWriter(key, prompt, 6000));
+    for (var round = 0; round < 2 && needsFix(strap); round++) {
+      strap = readStrap(await askWriter(key,
+        "This TV news strapline breaks house rules (too long, or it uses a semicolon). Rewrite it so that top is at most " +
+        (LIMIT.top - 2) + " characters and bottom is at most " + (LIMIT.bottom - 3) + " characters, counting spaces. " +
+        "Cut words or rephrase. Use no semicolons, no pronoun for the subject, keep the present tense, the facts and the " +
+        "attribution of anything alleged, and keep the two lines from repeating each other.\n\n" +
+        "top (" + strap.top.length + " characters): " + strap.top + "\n" +
+        "bottom (" + strap.bottom.length + " characters): " + strap.bottom + "\n\n" +
+        'Reply with only JSON: {"top": "...", "bottom": "..."}', 6000));
+    }
+    return { top: trimLine(strap.top, LIMIT.top), bottom: trimLine(strap.bottom, LIMIT.bottom) };
+  }
+  async function writeCopy(key, versions, names) {
+    var prompt =
+      "You are a writer on a British TV news channel. Write original news copy on the story below, " +
+      "based only on the source material from other outlets that follows.\n\n" +
+      "Rules:\n" +
+      "- Around two paragraphs, 110 to 150 words in all, if the sources hold enough facts. If they do not, write less. Never pad.\n" +
+      "- Entirely your own wording and structure. Do not reuse any outlet's sentences or distinctive phrases. Names, titles, places and figures are fine, and so is a short direct quote if it is attributed to the person who said it.\n" +
+      "- Use only facts stated in the sources. Add no background, context, figures or history from memory. If the outlets disagree, say who reports what.\n" +
+      "- Attribute anything alleged, claimed or unproven, and never state an allegation as fact. Do not call anyone a victim or offender unless a court has found it.\n" +
+      "- Open with a present-tense sentence that tells the story. Short, clear sentences that read well aloud. British spelling. Write the United States as U.S.\n" +
+      "- Never mention \"the sources\" or comment on what is missing or unknown. Leave out anything you cannot state.\n" +
+      "- Plain text only: no headline, no bullet points, no notes before or after. Separate the paragraphs with a blank line.\n\n" +
+      "SOURCES\n\n" + sourceText(versions, names);
+    var text = await askWriter(key, prompt, 8000);
+    return text.replace(/\r/g, "").replace(/\bUS\b(?!\.)/g, "U.S.").replace(/\n{3,}/g, "\n\n").trim();
+  }
+  /*WRITE-END*/
+
   var panel = document.getElementById("panel");
+  var $ = function (id) { return document.getElementById(id); };
+  var made = {};  // straps and copy written on request, kept in this browser
+  try { made = JSON.parse(localStorage.getItem("news.made") || "{}"); } catch (e) {}
+  function getKey() { try { return localStorage.getItem("news.key") || ""; } catch (e) { return ""; } }
+  function storyKey(story) { return story.versions[0].u; }
+  function keep(story, field, value) {
+    var key = storyKey(story);
+    made[key] = made[key] || {};
+    made[key][field] = value;
+    var keys = Object.keys(made);
+    if (keys.length > 150) delete made[keys[0]];
+    try { localStorage.setItem("news.made", JSON.stringify(made)); } catch (e) {}
+  }
+  function mine(story) { return made[storyKey(story)] || {}; }
+  function currentStrap() { return mine(state.open).strap || state.open.strap; }
   function strapLines() {
-    var strap = state.open.strap;
+    var strap = currentStrap();
     return state.caps ? [strap.top.toUpperCase(), strap.bottom.toUpperCase()] : [strap.top, strap.bottom];
   }
-  function renderStrap() {
-    var lines = strapLines();
-    document.getElementById("strap-top").textContent = lines[0];
-    document.getElementById("strap-bottom").textContent = lines[1];
-    document.getElementById("strap-counts").textContent =
-      "Top " + lines[0].length + " of 43 characters, bottom " + lines[1].length + " of 75";
-    document.getElementById("strap-caps").setAttribute("aria-pressed", String(state.caps));
-    document.getElementById("strap-note").textContent = state.open.strap.auto
-      ? "Rough version, trimmed from the headline. A written one replaces it at the next update if AI straplines are switched on."
+  function renderPanel() {
+    var lines = strapLines(), copy = mine(state.open).copy;
+    $("strap-top").textContent = lines[0];
+    $("strap-bottom").textContent = lines[1];
+    $("strap-counts").textContent =
+      "Top " + lines[0].length + " of " + LIMIT.top + " characters, bottom " + lines[1].length + " of " + LIMIT.bottom;
+    $("strap-caps").setAttribute("aria-pressed", String(state.caps));
+    $("strap-note").textContent = currentStrap().auto
+      ? "Rough version, trimmed from the headline. A written one replaces it at the next update."
       : "";
-    document.getElementById("strap-copy").textContent = "Copy strapline";
+    $("strap-copy").textContent = "Copy strapline";
+    $("copy-copy").textContent = "Copy text";
+    $("copy-text").hidden = !copy;
+    $("copy-copy").hidden = !copy;
+    $("copy-write").textContent = copy ? "Write copy again" : "Write copy";
+    $("copy-text").textContent = "";
+    $("copy-counts").textContent = "";
+    if (copy) {
+      copy.split(/\n\s*\n/).forEach(function (para) { $("copy-text").appendChild(el("p", null, para)); });
+      $("copy-counts").textContent = copy.split(/\s+/).filter(Boolean).length + " words";
+    }
+    $("key-forget").hidden = !getKey();
   }
   function openPanel(story, versions) {
     state.open = story;
-    renderStrap();
-    var papers = document.getElementById("panel-papers");
+    $("panel-headline").textContent = versions[0].t;
+    $("made-status").textContent = "";
+    $("keyform").hidden = true;
+    var papers = $("panel-papers");
     papers.textContent = "";
     versions.forEach(function (v) {
-      var copy = el("a", "copy", state.names[v.s] || v.s);
-      copy.href = v.u; copy.target = "_blank"; copy.rel = "noopener"; copy.title = v.t;
-      papers.appendChild(copy);
+      var link = el("a", "copy", "Read in " + (state.names[v.s] || v.s));
+      link.href = v.u; link.target = "_blank"; link.rel = "noopener"; link.title = v.t;
+      papers.appendChild(link);
     });
+    renderPanel();
     panel.showModal();
   }
-  document.getElementById("panel-close").addEventListener("click", function () { panel.close(); });
-  panel.addEventListener("click", function (event) { if (event.target === panel) panel.close(); });
-  document.getElementById("strap-caps").addEventListener("click", function () {
-    state.caps = !state.caps; save(); renderStrap();
-  });
-  document.getElementById("strap-copy").addEventListener("click", function () {
-    var button = this, text = strapLines().join("\n");
+  function copyOut(button, text) {
     function done(ok) { button.textContent = ok ? "Copied" : "Could not copy: select the text instead"; }
     try { navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); }); }
     catch (e) { done(false); }
+  }
+  // run a paid request for the open story, with the key and error handling in one place
+  function request(button, label, work) {
+    var key = getKey(), story = state.open;
+    if (!key) { state.pending = button; $("keyform").hidden = false; $("key-input").focus(); return; }
+    button.disabled = true;
+    $("made-status").textContent = label;
+    work(key, story).then(function () {
+      if (state.open === story) { $("made-status").textContent = ""; renderPanel(); }
+    }, function (error) {
+      if (state.open !== story) return;
+      $("made-status").textContent = error.status === 401
+        ? "The key was rejected. Remove it below and save it again."
+        : "Could not finish: " + (error.message === "Failed to fetch" || error.message === "Load failed"
+          ? "no connection to the writing service from here. Open the page in a web browser."
+          : error.message);
+    }).then(function () { button.disabled = false; });
+  }
+  $("panel-close").addEventListener("click", function () { panel.close(); });
+  panel.addEventListener("click", function (event) { if (event.target === panel) panel.close(); });
+  $("strap-caps").addEventListener("click", function () { state.caps = !state.caps; save(); renderPanel(); });
+  $("strap-copy").addEventListener("click", function () { copyOut(this, strapLines().join("\n")); });
+  $("copy-copy").addEventListener("click", function () { copyOut(this, mine(state.open).copy); });
+  $("strap-write").addEventListener("click", function () {
+    request(this, "Writing a new strapline…", function (key, story) {
+      return writeStrap(key, state.data.brief, story.versions, mine(story).strap || (story.strap.auto ? null : story.strap))
+        .then(function (strap) { keep(story, "strap", strap); });
+    });
+  });
+  $("copy-write").addEventListener("click", function () {
+    request(this, "Writing copy…", function (key, story) {
+      return writeCopy(key, story.versions, state.names).then(function (text) { keep(story, "copy", text); });
+    });
+  });
+  $("keyform").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var value = $("key-input").value.trim();
+    if (!value) return;
+    try { localStorage.setItem("news.key", value); }
+    catch (e) { $("made-status").textContent = "This browser would not save the key."; return; }
+    $("key-input").value = "";
+    $("keyform").hidden = true;
+    renderPanel();
+    if (state.pending) { var button = state.pending; state.pending = null; button.click(); }
+  });
+  $("key-forget").addEventListener("click", function () {
+    try { localStorage.removeItem("news.key"); } catch (e) {}
+    $("made-status").textContent = "Key removed from this browser.";
+    renderPanel();
   });
 
   function renderStories() {
@@ -297,11 +497,12 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
       else main.appendChild(el("p", "note", "Nothing matches. Try fewer or different words."));
       return;
     }
-    var lead = el("div", "lead"), light = el("div", "lead"), rest = el("div");
+    var lead = el("div", "lead"), light = el("div", "lead"), sport = el("div", "lead"), rest = el("div");
     state.data.stories.forEach(function (story) {
       var node = storyNode(story);
       if (!node) return;
-      if (story.light) { if (light.children.length < 8) light.appendChild(node); }
+      if (story.sport) { if (sport.children.length < 10) sport.appendChild(node); }
+      else if (story.light) { if (light.children.length < 8) light.appendChild(node); }
       else (Number(node.dataset.papers) > 1 ? lead : rest).appendChild(node);
     });
     if (lead.children.length) {
@@ -311,6 +512,10 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
     if (light.children.length) {
       main.appendChild(el("h2", "section", "Lighter side"));
       main.appendChild(light);
+    }
+    if (sport.children.length) {
+      main.appendChild(el("h2", "section", "Sport"));
+      main.appendChild(sport);
     }
     if (rest.children.length) {
       main.appendChild(el("h2", "section", lead.children.length ? "Also today" : "Today"));
@@ -325,7 +530,7 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
         main.appendChild(more);
       }
     }
-    if (!lead.children.length && !rest.children.length && !light.children.length) {
+    if (!lead.children.length && !rest.children.length && !light.children.length && !sport.children.length) {
       main.appendChild(el("p", "note", "No stories to show. Turn a paper back on above."));
     }
   }

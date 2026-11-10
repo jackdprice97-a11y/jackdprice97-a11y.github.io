@@ -34,6 +34,11 @@ FEEDS = [
     ("sky", "Sky News", "https://feeds.skynews.com/feeds/rss/strange.xml", "light"),
     ("mirror", "The Mirror", "https://www.mirror.co.uk/news/weird-news/?service=rss", "light"),
     ("metro", "Metro", "https://metro.co.uk/news/weird/feed/", "light"),
+    # sport: these fill the "Sport" section
+    ("bbc", "BBC News", "https://feeds.bbci.co.uk/sport/rss.xml", "sport"),
+    ("guardian", "The Guardian", "https://www.theguardian.com/uk/sport/rss", "sport"),
+    ("sky", "Sky News", "https://www.skysports.com/rss/12040", "sport"),
+    ("telegraph", "The Telegraph", "https://www.telegraph.co.uk/sport/rss.xml", "sport"),
 ]
 
 # Celebrity and showbiz are left out: by section of the address, then by headline.
@@ -43,6 +48,7 @@ SKIP_URL = re.compile(
     r"lifeandstyle|life-style|horoscopes?|shopping|deals|voucher|bingo|betting|puzzles)(/|$)",
     re.I,
 )
+SPORT_URL = re.compile(r"/sport/|skysports\.com|/football/|/rugby-union/|/cricket/", re.I)
 SKIP_TITLE = re.compile(
     r"\b(love island|strictly|i'm a celeb|im a celeb|big brother|bake off|traitors|"
     r"towie|x factor|eastenders|coronation street|corrie|emmerdale|hollyoaks|"
@@ -58,7 +64,8 @@ SKIP_TITLE = re.compile(
 
 MAX_AGE_HOURS = 36      # drop anything older than this
 MAX_PER_FEED = 100      # newest items kept per paper
-SUMMARY_CHARS = 220
+SUMMARY_CHARS = 220     # summary shown on the page
+SOURCE_CHARS = 600      # longer extract kept as source material for writing copy
 
 # Straplines: two caption lines per story, as on a TV news channel.
 STRAP_TOP = 43          # most characters on the top line
@@ -133,11 +140,13 @@ def parse_feed(data):
                         link = child.get("href")
                         break
         when = parse_date(child_text(node, "pubdate", "published", "updated", "date"))
-        summary = clean(child_text(node, "description", "summary"), SUMMARY_CHARS)
+        described = child_text(node, "description", "summary")
+        summary = clean(described, SUMMARY_CHARS)
+        source = clean(described, SOURCE_CHARS)
         if SKIP_URL.search(link) or SKIP_TITLE.search(title.replace("’", "'")):
             continue
         if title and link.startswith("http"):
-            items.append({"t": title, "u": link, "d": summary, "when": when})
+            items.append({"t": title, "u": link, "d": summary, "x": source if source != summary else "", "when": when})
     return items
 
 
@@ -202,7 +211,7 @@ def build(feed_results, now):
     for feed in FEEDS:
         order.setdefault(feed[0], len(order))
     items, by_id = [], {}
-    for source_id, name, light, result in feed_results:
+    for source_id, name, kind, result in feed_results:
         source = by_id.setdefault(source_id, {"id": source_id, "name": name, "ok": False, "count": 0})
         if isinstance(result, str):
             source.setdefault("error", result)
@@ -215,7 +224,7 @@ def build(feed_results, now):
             if when > now:
                 when = now
             if when >= cutoff:
-                kept.append({**item, "when": when, "s": source_id, "light": light})
+                kept.append({**item, "when": when, "s": source_id, "kind": kind})
         kept.sort(key=lambda i: i["when"], reverse=True)
         kept = kept[:MAX_PER_FEED]
         items.extend(kept)
@@ -229,13 +238,15 @@ def build(feed_results, now):
         out.append(
             {
                 "time": max(v["when"] for v in versions).isoformat(timespec="minutes"),
-                "light": any(v["light"] for v in versions),
+                "light": any(v["kind"] == "light" for v in versions),
+                "sport": any(v["kind"] == "sport" or SPORT_URL.search(v["u"]) for v in versions),
                 "versions": [
                     {
                         "s": v["s"],
                         "t": v["t"],
                         "u": v["u"],
                         "d": v["d"],
+                        **({"x": v["x"]} if v.get("x") else {}),
                         "p": v["when"].isoformat(timespec="minutes"),
                     }
                     for v in versions
@@ -457,12 +468,12 @@ def main():
     now = datetime.now(timezone.utc)
     results = []
     for source_id, name, url, *kind in FEEDS:
-        light = bool(kind)
+        kind = kind[0] if kind else ""
         try:
-            results.append((source_id, name, light, parse_feed(fetch(url))))
+            results.append((source_id, name, kind, parse_feed(fetch(url))))
             print(f"ok    {name}: {len(results[-1][3])} items")
         except Exception as error:  # one broken feed must not stop the rest
-            results.append((source_id, name, light, f"{type(error).__name__}: {error}"[:160]))
+            results.append((source_id, name, kind, f"{type(error).__name__}: {error}"[:160]))
             print(f"FAIL  {name}: {error}", file=sys.stderr)
 
     data = build(results, now)
@@ -471,6 +482,7 @@ def main():
         print("No stories fetched; keeping the previous data.json", file=sys.stderr)
         return 1
     add_straps(data, target)
+    data["brief"] = STRAP_PROMPT.format(top=STRAP_TOP - 4, bottom=STRAP_BOTTOM - 6, stories="{stories}")
     target.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"Wrote {len(data['stories'])} stories to {target}")
     return 0
