@@ -97,6 +97,18 @@ h2.section {
 }
 .copy:hover { border-color: var(--accent); }
 .copy.current { border-color: var(--accent); background: var(--accent-soft); }
+dialog {
+  width: min(560px, calc(100% - 24px)); border: 1px solid var(--rule); border-radius: 12px;
+  background: var(--paper); color: var(--ink); padding: 16px;
+}
+dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.panel-head h2 { margin: 0; }
+.strap { margin: 14px 0 8px; font-family: var(--body); overflow-wrap: anywhere; }
+.strap-top { background: var(--accent); color: var(--paper); font-weight: 600; font-size: 18px; line-height: 1.25; padding: 8px 10px; }
+.strap-bottom { background: var(--ink); color: var(--paper); font-size: 15px; line-height: 1.3; padding: 8px 10px; }
+.panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.counts { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .note { color: var(--muted); font-size: 14px; padding: 24px 0; }
 footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
 </style>
@@ -120,10 +132,30 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
   <footer id="footer"></footer>
 </div>
 
+<dialog id="panel" aria-labelledby="panel-title">
+  <div class="panel-head">
+    <h2 class="section" id="panel-title">Strapline</h2>
+    <button class="chip" id="panel-close" type="button">Close</button>
+  </div>
+  <div class="strap">
+    <div class="strap-top" id="strap-top"></div>
+    <div class="strap-bottom" id="strap-bottom"></div>
+  </div>
+  <div class="counts" id="strap-counts"></div>
+  <div class="panel-actions">
+    <button class="chip" id="strap-copy" type="button">Copy strapline</button>
+    <button class="chip" id="strap-caps" type="button" aria-pressed="true">Capitals</button>
+  </div>
+  <div class="counts" id="strap-note"></div>
+  <h2 class="section">Read the story</h2>
+  <div class="meta" id="panel-papers"></div>
+</dialog>
+
 <script>
 (function () {
-  var state = { data: null, off: {}, prefer: "" };
+  var state = { data: null, off: {}, prefer: "", caps: true, open: null };
   try {
+    state.caps = localStorage.getItem("news.caps") !== "off";
     state.off = JSON.parse(localStorage.getItem("news.off") || "{}");
     state.prefer = localStorage.getItem("news.prefer") || "";
   } catch (e) {}
@@ -131,6 +163,7 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
     try {
       localStorage.setItem("news.off", JSON.stringify(state.off));
       localStorage.setItem("news.prefer", state.prefer);
+      localStorage.setItem("news.caps", state.caps ? "on" : "off");
     } catch (e) {}
   }
   function el(tag, cls, text) {
@@ -184,6 +217,11 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
     var heading = el("h3");
     var link = el("a", null, shown.t);
     link.href = shown.u; link.target = "_blank"; link.rel = "noopener";
+    link.addEventListener("click", function (event) {
+      if (!story.strap || !panel.showModal) return; // no strap: open the article as before
+      event.preventDefault();
+      openPanel(story, versions);
+    });
     heading.appendChild(link);
     node.appendChild(heading);
     if (shown.d) node.appendChild(el("p", null, shown.d));
@@ -199,6 +237,47 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
     node.dataset.papers = versions.length;
     return node;
   }
+
+  var panel = document.getElementById("panel");
+  function strapLines() {
+    var strap = state.open.strap;
+    return state.caps ? [strap.top.toUpperCase(), strap.bottom.toUpperCase()] : [strap.top, strap.bottom];
+  }
+  function renderStrap() {
+    var lines = strapLines();
+    document.getElementById("strap-top").textContent = lines[0];
+    document.getElementById("strap-bottom").textContent = lines[1];
+    document.getElementById("strap-counts").textContent =
+      "Top " + lines[0].length + " of 43 characters, bottom " + lines[1].length + " of 75";
+    document.getElementById("strap-caps").setAttribute("aria-pressed", String(state.caps));
+    document.getElementById("strap-note").textContent = state.open.strap.auto
+      ? "Rough version, trimmed from the headline. A written one replaces it at the next update if AI straplines are switched on."
+      : "";
+    document.getElementById("strap-copy").textContent = "Copy strapline";
+  }
+  function openPanel(story, versions) {
+    state.open = story;
+    renderStrap();
+    var papers = document.getElementById("panel-papers");
+    papers.textContent = "";
+    versions.forEach(function (v) {
+      var copy = el("a", "copy", state.names[v.s] || v.s);
+      copy.href = v.u; copy.target = "_blank"; copy.rel = "noopener"; copy.title = v.t;
+      papers.appendChild(copy);
+    });
+    panel.showModal();
+  }
+  document.getElementById("panel-close").addEventListener("click", function () { panel.close(); });
+  panel.addEventListener("click", function (event) { if (event.target === panel) panel.close(); });
+  document.getElementById("strap-caps").addEventListener("click", function () {
+    state.caps = !state.caps; save(); renderStrap();
+  });
+  document.getElementById("strap-copy").addEventListener("click", function () {
+    var button = this, text = strapLines().join("\n");
+    function done(ok) { button.textContent = ok ? "Copied" : "Could not copy: select the text instead"; }
+    try { navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); }); }
+    catch (e) { done(false); }
+  });
 
   function renderStories() {
     var main = document.getElementById("main");
