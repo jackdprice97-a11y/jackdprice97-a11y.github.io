@@ -62,9 +62,10 @@ SUMMARY_CHARS = 220
 # Straplines: two caption lines per story, as on a TV news channel.
 STRAP_TOP = 43          # most characters on the top line
 STRAP_BOTTOM = 75       # most characters on the bottom line
-STRAP_MODEL = "claude-sonnet-5-5"
-STRAP_BATCH = 20        # stories per request
-STRAP_MAX_PER_RUN = 160 # new stories written per run; the rest wait for the next
+STRAP_MODEL_MAIN = "claude-opus-5-5"    # stories several papers carry: the best writer
+STRAP_MODEL_REST = "claude-sonnet-5-5"  # everything else: fast and cheaper
+STRAP_BATCH_MAIN, STRAP_BATCH_REST = 10, 20  # stories per request
+STRAP_MAX_MAIN, STRAP_MAX_REST = 60, 160     # new straps per run; the rest wait for the next
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
     "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
@@ -275,6 +276,7 @@ House style:
 - Clarity comes first. A viewer glancing up with no background must understand each line at once. Say plainly what was said, done or decided: write "says UK should rejoin EU in the long term", never "goes further than the PM". No comparisons, allusions or references that only make sense if you already know the story.
 - Give people their role the first time they appear ("Scottish Labour leader Michael Marra"), and do not put a second person in the line unless the story is about them too.
 - Be specific: names, places, numbers, ages. No vague filler ("row erupts", "questions raised", "what we know"), no puns, no questions, no teasing.
+- Accuracy beats everything, including punch. Every claim in a strap must be stated directly in the headlines or summary given. Never infer, guess or imply anyone's position, motive or reaction: no "unlike", "despite", "in a blow to", "defying" or similar contrasts unless the source states that contrast in terms. If the source says someone was urged to do something, say they were urged, not that they refused or disagree. When unsure, leave it out and use another fact from the source.
 - Use only the facts given. Attribute anything alleged, claimed or unproven (police say, court hears, he denies); never state an allegation as fact. Do not call someone a victim or offender unless a court has found it.
 - Write the United States as U.S. (with full stops), never US.
 - Prime Minister can be shortened to PM when space is tight.
@@ -300,19 +302,20 @@ def house_style(text):
     return text[:-1] if text.endswith(".") and not text.endswith("U.S.") else text
 
 
-def claude(key, prompt):
-    body = {
-        "model": STRAP_MODEL,
-        "max_tokens": 6000,
-        "thinking": {"type": "between_tools"},  # answer directly, no reasoning first
-        "messages": [{"role": "user", "content": prompt}],
-    }
+def claude(key, prompt, model):
+    body = {"model": model, "max_tokens": 16000, "messages": [{"role": "user", "content": prompt}]}
+    if model == STRAP_MODEL_MAIN:
+        # let it reason briefly: it checks facts and counts characters far better
+        body["thinking"] = {"type": "adaptive"}
+        body["output_config"] = {"effort": "low"}
+    else:
+        body["thinking"] = {"type": "between_tools"}  # answer directly
     request = urllib.request.Request(
         "https://api.anthropic.com/v1/messages",
         data=json.dumps(body).encode(),
         headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=120) as response:
+    with urllib.request.urlopen(request, timeout=300) as response:
         reply = json.loads(response.read())
     text = "".join(block.get("text", "") for block in reply.get("content", []))
     found = re.search(r"\[.*\]", text, re.S)
@@ -333,19 +336,36 @@ def too_long(strap):
     return len(strap["top"]) > STRAP_TOP or len(strap["bottom"]) > STRAP_BOTTOM
 
 
-def ask_claude(key, batch):
+DANGLING = {
+    "a", "an", "the", "of", "to", "in", "on", "at", "for", "and", "as", "after", "over", "his", "her",
+    "their", "its", "by", "with", "near", "is", "are", "was", "were", "from", "amid", "into", "that", "who", "he", "she", "it",
+}
+
+
+def trim(text, limit):
+    """Last resort for a line still over the limit: cut at a word, drop dangling words."""
+    text = fit(text.replace(";", ","), limit)
+    words_left = text.split(" ")
+    while len(words_left) > 2 and words_left[-1].lower().strip(",") in DANGLING:
+        words_left.pop()
+    return " ".join(words_left).rstrip(" ,")
+
+
+def source_lines(batch):
     lines = []
     for n, story in enumerate(batch):
         versions = story["versions"]
         summary = next((v["d"] for v in versions if v["d"]), "")
         lines.append(f"{n}. HEADLINES: " + " | ".join(v["t"] for v in versions[:4]) + f"\n   SUMMARY: {summary}")
-    # ask for a little under the real limits: the model miscounts by a few characters
-    straps = claude(key, STRAP_PROMPT.format(top=STRAP_TOP - 4, bottom=STRAP_BOTTOM - 6, stories="\n".join(lines)))
+    return lines
 
-    for _ in range(2):  # send back any that are still over, with the real counts
+
+def shorten(key, straps, model):
+    """Send back any strap that is over length or uses a semicolon, with real counts."""
+    for _ in range(3):
         over = {n: strap for n, strap in straps.items() if too_long(strap)}
         if not over:
-            break
+            return
         notes = []
         for n, strap in over.items():
             notes.append(
@@ -353,12 +373,21 @@ def ask_claude(key, batch):
                 f'   bottom ({len(strap["bottom"])} characters, limit {STRAP_BOTTOM}): {strap["bottom"]}'
             )
         try:
-            straps.update(claude(key, STRAP_FIX_PROMPT.format(top=STRAP_TOP, bottom=STRAP_BOTTOM, straps="\n".join(notes))))
+            fixed = claude(key, STRAP_FIX_PROMPT.format(top=STRAP_TOP - 2, bottom=STRAP_BOTTOM - 3, straps="\n".join(notes)), model)
         except Exception:
-            break
-    for strap in straps.values():  # last resort: never go over
-        strap["top"] = fit(strap["top"].replace(";", ","), STRAP_TOP)
-        strap["bottom"] = fit(strap["bottom"].replace(";", ","), STRAP_BOTTOM)
+            continue
+        straps.update({n: strap for n, strap in fixed.items() if n in over})
+
+
+def ask_claude(key, batch, model):
+    lines = source_lines(batch)
+    # ask for a little under the real limits: the model miscounts by a few characters
+    straps = claude(key, STRAP_PROMPT.format(top=STRAP_TOP - 4, bottom=STRAP_BOTTOM - 6, stories="\n".join(lines)), model)
+    straps = {n: strap for n, strap in straps.items() if 0 <= n < len(batch)}
+    shorten(key, straps, model)
+
+    for strap in straps.values():  # never over, whatever happened above
+        strap["top"], strap["bottom"] = trim(strap["top"], STRAP_TOP), trim(strap["bottom"], STRAP_BOTTOM)
     return straps
 
 
@@ -376,31 +405,37 @@ def add_straps(data, target):
     except (OSError, ValueError, KeyError):
         pass
 
-    todo = []
+    main_todo, rest_todo = [], []
     for story in data["stories"]:
         strap = next((saved[v["u"]] for v in story["versions"] if v["u"] in saved), None)
+        is_main = len(story["versions"]) > 1
         if strap:
             story["strap"] = strap
+            if is_main and strap.get("by") != "main":
+                main_todo.append(story)  # now a main story: give it the best writer
         else:
             story["strap"] = rough_strap(story)
-            todo.append(story)
+            (main_todo if is_main else rest_todo).append(story)
 
     key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not key:
         print("No ANTHROPIC_API_KEY set: straplines are trimmed headlines")
         return
-    todo = todo[:STRAP_MAX_PER_RUN]  # stories are already ordered most-covered first
     written = 0
-    for start in range(0, len(todo), STRAP_BATCH):
-        batch = todo[start : start + STRAP_BATCH]
-        try:
-            for n, strap in ask_claude(key, batch).items():
-                if 0 <= n < len(batch):
-                    batch[n]["strap"] = strap
+    plans = [
+        (main_todo[:STRAP_MAX_MAIN], STRAP_BATCH_MAIN, STRAP_MODEL_MAIN, "main"),
+        (rest_todo[:STRAP_MAX_REST], STRAP_BATCH_REST, STRAP_MODEL_REST, "rest"),
+    ]
+    for todo, size, model, label in plans:
+        for start in range(0, len(todo), size):
+            batch = todo[start : start + size]
+            try:
+                for n, strap in ask_claude(key, batch, model).items():
+                    batch[n]["strap"] = {**strap, "by": label}
                     written += 1
-        except Exception as error:  # keep the trimmed versions and carry on
-            print(f"FAIL  straplines: {type(error).__name__}: {error}", file=sys.stderr)
-            break
+            except Exception as error:  # keep what they had and carry on
+                print(f"FAIL  straplines ({label}): {type(error).__name__}: {error}", file=sys.stderr)
+                break
     print(f"Wrote {written} new straplines")
 
 
