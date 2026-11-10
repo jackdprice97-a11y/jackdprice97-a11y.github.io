@@ -37,7 +37,7 @@ FEEDS = [
 # Celebrity and showbiz are left out: by section of the address, then by headline.
 SKIP_URL = re.compile(
     r"/(tvshowbiz|showbiz|celebrity|celebs|celebrity-news|3am|femail|entertainment|"
-    r"tv-and-radio|tv-radio|tv|soaps|reality-tv|royals?|royal-family|fashion|"
+    r"tv-and-radio|tv-radio|tv|soaps|reality-tv|fashion|"
     r"lifeandstyle|life-style|horoscopes?|shopping|deals|voucher|bingo|betting|puzzles)(/|$)",
     re.I,
 )
@@ -45,8 +45,7 @@ SKIP_TITLE = re.compile(
     r"\b(love island|strictly|i'm a celeb|im a celeb|big brother|bake off|traitors|"
     r"towie|x factor|eastenders|coronation street|corrie|emmerdale|hollyoaks|"
     r"kardashian|jenner|red carpet|showbiz|celebrity|celeb|reality star|influencer|"
-    r"bikini|flaunts|sizzles|stuns in|puts on a|shows off|ex-husband|ex-wife|"
-    r"girlfriend|boyfriend|horoscope|best deals|black friday)\b",
+    r"bikini|flaunts|sizzles|stuns in|shows off|horoscope|best deals|black friday)\b",
     re.I,
 )
 

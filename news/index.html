@@ -76,6 +76,7 @@ h2.section {
   color: var(--accent); margin: 24px 0 4px;
 }
 .lead { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0 32px; }
+.story[hidden] { display: none; }
 .story { padding: 16px 0; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 8px; }
 .story h3 { margin: 0; font: 600 20px/1.22 var(--display); text-wrap: balance; }
 .lead .story h3 { font-size: 24px; font-weight: 700; }
@@ -214,6 +215,15 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
     if (rest.children.length) {
       main.appendChild(el("h2", "section", lead.children.length ? "Also today" : "Today"));
       main.appendChild(rest);
+      var extra = Array.prototype.slice.call(rest.children, 25);
+      if (extra.length && !state.showAll) {
+        extra.forEach(function (node) { node.hidden = true; });
+        var more = el("button", "chip", "Show " + extra.length + " more stories");
+        more.type = "button";
+        more.style.marginTop = "16px";
+        more.addEventListener("click", function () { state.showAll = true; renderStories(); });
+        main.appendChild(more);
+      }
     }
     if (!lead.children.length && !rest.children.length && !light.children.length) {
       main.appendChild(el("p", "note", "No stories to show. Turn a paper back on above."));
