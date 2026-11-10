@@ -28,7 +28,8 @@ FEEDS = [
     ("standard", "The Standard", "https://www.standard.co.uk/news/rss"),
     ("mirror", "The Mirror", "https://www.mirror.co.uk/news/?service=rss"),
     ("metro", "Metro", "https://metro.co.uk/feed/"),
-    ("express", "Daily Express", "https://www.express.co.uk/posts/rss/1/uk"),
+    ("telegraph", "The Telegraph", "https://www.telegraph.co.uk/rss.xml"),
+    ("times", "The Times", "https://www.thetimes.com/rss"),
     # lighter, odd-news feeds: these fill the "Lighter side" section
     ("sky", "Sky News", "https://feeds.skynews.com/feeds/rss/strange.xml", "light"),
     ("mirror", "The Mirror", "https://www.mirror.co.uk/news/weird-news/?service=rss", "light"),
@@ -62,6 +63,7 @@ SUMMARY_CHARS = 220
 # Straplines: two caption lines per story, as on a TV news channel.
 STRAP_TOP = 43          # most characters on the top line
 STRAP_BOTTOM = 75       # most characters on the bottom line
+STRAP_STYLE = 2         # raise this after changing the brief: every strap is rewritten
 STRAP_MODEL_MAIN = "claude-opus-5-5"    # stories several papers carry: the best writer
 STRAP_MODEL_REST = "claude-sonnet-5-5"  # everything else: fast and cheaper
 STRAP_BATCH_MAIN, STRAP_BATCH_REST = 10, 20  # stories per request
@@ -274,6 +276,7 @@ House style:
 - Each line is a single clear statement, direct and punchy, in the manner of a rolling news channel strap. No semicolons, ever. Do not bolt two fragments together: join ideas with "as", "after", "with", "amid" or a comma, or drop the lesser fact.
 - The two lines must not repeat each other's words or facts. Read together, they tell the whole story to someone who has not heard it.
 - Clarity comes first. A viewer glancing up with no background must understand each line at once. Say plainly what was said, done or decided: write "says UK should rejoin EU in the long term", never "goes further than the PM". No comparisons, allusions or references that only make sense if you already know the story.
+- The bottom line must stand on its own. Never refer back to the top line's subject with a pronoun (he, she, they, it, his, her, their): use a describing word instead, as a news writer would, such as the comedian, the author, the minister, the 41-year-old, the club or the company, or use the name again.
 - Give people their role the first time they appear ("Scottish Labour leader Michael Marra"), and do not put a second person in the line unless the story is about them too.
 - Be specific: names, places, numbers, ages. No vague filler ("row erupts", "questions raised", "what we know"), no puns, no questions, no teasing.
 - Accuracy beats everything, including punch. Every claim in a strap must be stated directly in the headlines or summary given. Never infer, guess or imply anyone's position, motive or reaction: no "unlike", "despite", "in a blow to", "defying" or similar contrasts unless the source states that contrast in terms. If the source says someone was urged to do something, say they were urged, not that they refused or disagree. When unsure, leave it out and use another fact from the source.
@@ -289,7 +292,7 @@ Stories:
 {stories}"""
 
 
-STRAP_FIX_PROMPT = """These TV news straplines break house rules (too long, or they use a semicolon). Rewrite each one so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; use no semicolons, keep each line a single flowing statement, keep the present tense, the facts, the attribution of anything alleged, and U.S. written with full stops, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
+STRAP_FIX_PROMPT = """These TV news straplines break house rules (too long, or they use a semicolon). Rewrite each one so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; use no semicolons, keep each line a single flowing statement, never use a pronoun (he, she, they, it) for the subject, keep the present tense, the facts, the attribution of anything alleged, and U.S. written with full stops, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
 
 Reply with only a JSON array: [{{"n": 0, "top": "...", "bottom": "..."}}]
 
@@ -321,8 +324,19 @@ def claude(key, prompt, model):
     found = re.search(r"\[.*\]", text, re.S)
     if not found:
         raise ValueError(f"no list in reply (stop: {reply.get('stop_reason')})")
+    try:
+        entries = json.loads(found.group(0), strict=False)
+    except ValueError:  # one bad entry must not lose the batch: read them one at a time
+        entries = []
+        for piece in re.findall(r"\{[^{}]*\}", found.group(0)):
+            try:
+                entries.append(json.loads(piece, strict=False))
+            except ValueError:
+                pass
     out = {}
-    for entry in json.loads(found.group(0)):
+    for entry in entries:
+        if not isinstance(entry, dict) or "n" not in entry:
+            continue
         top, bottom = house_style(entry.get("top", "")), house_style(entry.get("bottom", ""))
         if top and bottom:
             out[int(entry["n"])] = {"top": top, "bottom": bottom}
@@ -399,7 +413,7 @@ def add_straps(data, target):
     try:
         for story in json.loads(target.read_text(encoding="utf-8"))["stories"]:
             strap = story.get("strap")
-            if strap and not strap.get("auto"):
+            if strap and not strap.get("auto") and strap.get("v") == STRAP_STYLE:
                 for version in story["versions"]:
                     saved[version["u"]] = strap
     except (OSError, ValueError, KeyError):
@@ -431,7 +445,7 @@ def add_straps(data, target):
             batch = todo[start : start + size]
             try:
                 for n, strap in ask_claude(key, batch, model).items():
-                    batch[n]["strap"] = {**strap, "by": label}
+                    batch[n]["strap"] = {**strap, "by": label, "v": STRAP_STYLE}
                     written += 1
             except Exception as error:  # keep what they had and carry on
                 print(f"FAIL  straplines ({label}): {type(error).__name__}: {error}", file=sys.stderr)
