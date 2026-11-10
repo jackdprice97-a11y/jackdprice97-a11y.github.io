@@ -58,6 +58,13 @@ SKIP_TITLE = re.compile(
 MAX_AGE_HOURS = 36      # drop anything older than this
 MAX_PER_FEED = 100      # newest items kept per paper
 SUMMARY_CHARS = 220
+
+# Straplines: two caption lines per story, as on a TV news channel.
+STRAP_TOP = 43          # most characters on the top line
+STRAP_BOTTOM = 75       # most characters on the bottom line
+STRAP_MODEL = "claude-haiku-5-5"
+STRAP_BATCH = 20        # stories per request
+STRAP_MAX_PER_RUN = 160 # new stories written per run; the rest wait for the next
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
     "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
@@ -237,6 +244,117 @@ def build(feed_results, now):
     return {"updated": now.isoformat(timespec="minutes"), "sources": sources, "stories": out}
 
 
+def fit(text, limit):
+    """Shorten to the limit at a word boundary. Never goes over."""
+    text = re.sub(r"\s+", " ", text or "").strip().rstrip("…").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[: limit + 1].rsplit(" ", 1)[0][:limit]
+    return cut.rstrip(" ,;:-–—'‘\"")
+
+
+def rough_strap(story):
+    """Fallback when no AI key is set: trimmed headline and summary."""
+    first = story["versions"][0]
+    options = [first["d"]] + [v["t"] for v in story["versions"][1:]] + [first["t"]]
+    bottom = next(text for text in options if text)
+    bottom = re.split(r"(?<=[.!?])\s", bottom)[0].rstrip(".")
+    return {"top": fit(first["t"], STRAP_TOP), "bottom": fit(bottom, STRAP_BOTTOM), "auto": True}
+
+
+STRAP_PROMPT = """You write straplines (the two-line captions at the bottom of the screen) for a British TV news channel.
+
+For each numbered story below, write:
+- top: at most {top} characters. The core of the story.
+- bottom: at most {bottom} characters. The next most important facts.
+
+Rules:
+- Count every character including spaces. Never go over either limit. Shorter is fine; aim to leave two or three characters spare.
+- The two lines must not repeat each other's words or facts. Read together, they tell the story to someone who has not heard it.
+- Use only the facts given. Attribute anything alleged or unproven (police say, court hears, report claims); never state an allegation as fact.
+- Plain sentence case, British spelling, present tense, no full stop at the end, no emoji.
+
+Reply with only a JSON array, one object per story: [{{"n": 0, "top": "...", "bottom": "..."}}]
+
+Stories:
+{stories}"""
+
+
+def ask_claude(key, batch):
+    lines = []
+    for n, story in enumerate(batch):
+        versions = story["versions"]
+        summary = next((v["d"] for v in versions if v["d"]), "")
+        lines.append(f"{n}. HEADLINES: " + " | ".join(v["t"] for v in versions[:4]) + f"\n   SUMMARY: {summary}")
+    body = {
+        "model": STRAP_MODEL,
+        "max_tokens": 4000,
+        "messages": [
+            {
+                "role": "user",
+                "content": STRAP_PROMPT.format(top=STRAP_TOP, bottom=STRAP_BOTTOM, stories="\n".join(lines)),
+            }
+        ],
+    }
+    request = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=json.dumps(body).encode(),
+        headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=90) as response:
+        reply = json.loads(response.read())
+    text = "".join(block.get("text", "") for block in reply.get("content", []))
+    found = re.search(r"\[.*\]", text, re.S)
+    straps = {}
+    for entry in json.loads(found.group(0)) if found else []:
+        top, bottom = fit(str(entry.get("top", "")), STRAP_TOP), fit(str(entry.get("bottom", "")), STRAP_BOTTOM)
+        if top and bottom:
+            straps[int(entry["n"])] = {"top": top, "bottom": bottom}
+    return straps
+
+
+def add_straps(data, target):
+    """Give every story a strapline: reuse saved ones, write new ones, else trim."""
+    import os
+
+    saved = {}
+    try:
+        for story in json.loads(target.read_text(encoding="utf-8"))["stories"]:
+            strap = story.get("strap")
+            if strap and not strap.get("auto"):
+                for version in story["versions"]:
+                    saved[version["u"]] = strap
+    except (OSError, ValueError, KeyError):
+        pass
+
+    todo = []
+    for story in data["stories"]:
+        strap = next((saved[v["u"]] for v in story["versions"] if v["u"] in saved), None)
+        if strap:
+            story["strap"] = strap
+        else:
+            story["strap"] = rough_strap(story)
+            todo.append(story)
+
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        print("No ANTHROPIC_API_KEY set: straplines are trimmed headlines")
+        return
+    todo = todo[:STRAP_MAX_PER_RUN]  # stories are already ordered most-covered first
+    written = 0
+    for start in range(0, len(todo), STRAP_BATCH):
+        batch = todo[start : start + STRAP_BATCH]
+        try:
+            for n, strap in ask_claude(key, batch).items():
+                if 0 <= n < len(batch):
+                    batch[n]["strap"] = strap
+                    written += 1
+        except Exception as error:  # keep the trimmed versions and carry on
+            print(f"FAIL  straplines: {type(error).__name__}: {error}", file=sys.stderr)
+            break
+    print(f"Wrote {written} new straplines")
+
+
 def main():
     now = datetime.now(timezone.utc)
     results = []
@@ -254,6 +372,7 @@ def main():
     if not data["stories"] and target.exists():
         print("No stories fetched; keeping the previous data.json", file=sys.stderr)
         return 1
+    add_straps(data, target)
     target.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"Wrote {len(data['stories'])} stories to {target}")
     return 0
