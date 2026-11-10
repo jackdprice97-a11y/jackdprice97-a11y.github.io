@@ -317,6 +317,7 @@ House style:
 - Use only the facts given. Attribute anything alleged, claimed or unproven (police say, court hears, he denies); never state an allegation as fact. Do not call someone a victim or offender unless a court has found it.
 - Write the United States as U.S. (with full stops), never US.
 - Prime Minister can be shortened to PM when space is tight.
+- Headline style: never open a line with "The", "A" or "An" (write "Comedian denies claims", not "The comedian denies claims"), and drop articles elsewhere wherever a headline would.
 - Plain sentence case, British spelling, numerals for numbers, no full stop at the end, no emoji. Use a name a viewer will recognise.
 - Count every character including spaces. Never go over either limit. Shorter is fine.
 
@@ -326,7 +327,7 @@ Stories:
 {stories}"""
 
 
-STRAP_FIX_PROMPT = """These TV news straplines break house rules (too long, or they use a semicolon). Rewrite each one so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; use no semicolons, keep each line a single flowing statement, never use a pronoun (he, she, they, it) for the subject, keep the present tense, the facts, the attribution of anything alleged, and U.S. written with full stops, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
+STRAP_FIX_PROMPT = """These TV news straplines break house rules (too long, or they use a semicolon). Rewrite each one so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; use no semicolons, keep each line a single flowing statement, never use a pronoun (he, she, they, it) for the subject, never open a line with "The", "A" or "An", keep the present tense, the facts, the attribution of anything alleged, and U.S. written with full stops, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
 
 Reply with only a JSON array: [{{"n": 0, "top": "...", "bottom": "..."}}]
 
@@ -336,6 +337,10 @@ Reply with only a JSON array: [{{"n": 0, "top": "...", "bottom": "..."}}]
 def house_style(text):
     text = re.sub(r"\s+", " ", str(text)).strip()
     text = re.sub(r"\bUS\b(?!\.)", "U.S.", text)  # house style: U.S., never US
+    opening = re.match(r"(?:The|A|An) (?=\S)", text)  # headline style: no article to open a line
+    if opening:
+        rest = text[opening.end():]
+        text = rest[0].upper() + rest[1:]
     return text[:-1] if text.endswith(".") and not text.endswith("U.S.") else text
 
 
@@ -458,6 +463,7 @@ def add_straps(data, target):
         strap = next((saved[v["u"]] for v in story["versions"] if v["u"] in saved), None)
         is_main = len(story["versions"]) > 1
         if strap:
+            strap["top"], strap["bottom"] = house_style(strap["top"]), house_style(strap["bottom"])
             story["strap"] = strap
             if is_main and strap.get("by") != "main":
                 main_todo.append(story)  # now a main story: give it the best writer
