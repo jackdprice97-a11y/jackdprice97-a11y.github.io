@@ -58,6 +58,11 @@ header.mast {
 .mast .date { color: var(--muted); font-size: 14px; margin-left: auto; text-align: right; }
 
 .controls { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+.search {
+  width: 100%; font: 400 16px var(--body); color: var(--ink); background: var(--card);
+  border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px;
+}
+.search::placeholder { color: var(--muted); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
   font: 500 13px/1 var(--body); padding: 8px 12px; border-radius: 999px;
@@ -104,6 +109,7 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
   </header>
 
   <div class="controls">
+    <input class="search" id="search" type="search" placeholder="Search the past 36 hours" aria-label="Search stories from the past 36 hours" autocomplete="off">
     <div class="chips" id="chips" aria-label="Papers to show"></div>
     <label class="prefer" for="prefer">When several papers have a story, show
       <select id="prefer"></select>
@@ -197,6 +203,21 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
   function renderStories() {
     var main = document.getElementById("main");
     main.textContent = "";
+    var terms = (state.query || "").toLowerCase().split(/\s+/).filter(Boolean);
+    if (terms.length) {
+      var found = el("div");
+      state.data.stories.filter(function (story) {
+        var text = story.versions.filter(function (v) { return !state.off[v.s]; })
+          .map(function (v) { return v.t + " " + v.d; }).join(" ").toLowerCase();
+        return terms.every(function (term) { return text.indexOf(term) !== -1; });
+      }).sort(function (a, b) { return a.time < b.time ? 1 : -1; })
+        .forEach(function (story) { var node = storyNode(story); if (node) found.appendChild(node); });
+      var count = found.children.length;
+      main.appendChild(el("h2", "section", count + (count === 1 ? " story" : " stories") + " in the past 36 hours"));
+      if (count) main.appendChild(found);
+      else main.appendChild(el("p", "note", "Nothing matches. Try fewer or different words."));
+      return;
+    }
     var lead = el("div", "lead"), light = el("div", "lead"), rest = el("div");
     state.data.stories.forEach(function (story) {
       var node = storyNode(story);
@@ -245,6 +266,11 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
       (down.length ? "Could not reach this hour: " + down.join(", ") + ". " : "") +
       "Headlines and summaries belong to each paper. Tap a paper's name to read its version on its own site.";
   }
+
+  document.getElementById("search").addEventListener("input", function (event) {
+    state.query = event.target.value;
+    if (state.data) renderStories();
+  });
 
   document.getElementById("today").textContent = new Date().toLocaleDateString("en-GB", {
     weekday: "long", day: "numeric", month: "long", year: "numeric"

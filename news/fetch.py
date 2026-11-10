@@ -49,8 +49,8 @@ SKIP_TITLE = re.compile(
     re.I,
 )
 
-MAX_AGE_HOURS = 30      # drop anything older than this
-MAX_PER_FEED = 60       # newest items kept per paper
+MAX_AGE_HOURS = 36      # drop anything older than this
+MAX_PER_FEED = 100      # newest items kept per paper
 SUMMARY_CHARS = 220
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
