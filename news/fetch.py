@@ -70,7 +70,7 @@ SOURCE_CHARS = 600      # longer extract kept as source material for writing cop
 # Straplines: two caption lines per story, as on a TV news channel.
 STRAP_TOP = 43          # most characters on the top line
 STRAP_BOTTOM = 75       # most characters on the bottom line
-STRAP_STYLE = 2         # raise this after changing the brief: every strap is rewritten
+STRAP_STYLE = 3         # raise this after changing the brief: every strap is rewritten
 STRAP_MODEL_MAIN = "claude-opus-5-5"    # stories several papers carry: the best writer
 STRAP_MODEL_REST = "claude-sonnet-5-5"  # everything else: fast and cheaper
 STRAP_BATCH_MAIN, STRAP_BATCH_REST = 10, 20  # stories per request
@@ -202,6 +202,26 @@ def cluster(items):
         # one version per paper: keep the newest, which arrives first
         if not any(v["s"] == item["s"] for v in home["versions"]):
             home["versions"].append(item)
+
+    # second pass: join groups that the first pass split because of the order items arrived in
+    merged = True
+    while merged:
+        merged = False
+        for i, first in enumerate(stories):
+            for second in stories[i + 1 :]:
+                if abs((first["when"] - second["when"]).total_seconds()) > 36 * 3600:
+                    continue
+                if any(same_story(a, b) for a in first["words"] for b in second["words"]):
+                    first["words"].extend(second["words"])
+                    for version in second["versions"]:
+                        if not any(v["s"] == version["s"] for v in first["versions"]):
+                            first["versions"].append(version)
+                    first["when"] = max(first["when"], second["when"])
+                    stories.remove(second)
+                    merged = True
+                    break
+            if merged:
+                break
     return stories
 
 
@@ -289,6 +309,8 @@ House style:
 - Clarity comes first. A viewer glancing up with no background must understand each line at once. Say plainly what was said, done or decided: write "says UK should rejoin EU in the long term", never "goes further than the PM". No comparisons, allusions or references that only make sense if you already know the story.
 - The bottom line must stand on its own. Never refer back to the top line's subject with a pronoun (he, she, they, it, his, her, their): use a describing word instead, as a news writer would, such as the comedian, the author, the minister, the 41-year-old, the club or the company, or use the name again.
 - Give people their role the first time they appear ("Scottish Labour leader Michael Marra"), and do not put a second person in the line unless the story is about them too.
+- One idea per line. The bottom line gives the single most important further fact, or two closely linked ones. Never cram in a list of dates, fixtures, scores, figures or places. Choose why it matters, what is at stake or what happens next over logistics such as dates and schedules.
+- In sport, make clear which sport, team or competition the story is about.
 - Be specific: names, places, numbers, ages. No vague filler ("row erupts", "questions raised", "what we know"), no puns, no questions, no teasing.
 - Accuracy beats everything, including punch. Every claim in a strap must be stated directly in the headlines or summary given. Never infer, guess or imply anyone's position, motive or reaction: no "unlike", "despite", "in a blow to", "defying" or similar contrasts unless the source states that contrast in terms. If the source says someone was urged to do something, say they were urged, not that they refused or disagree. When unsure, leave it out and use another fact from the source.
 - Use only the facts given. Attribute anything alleged, claimed or unproven (police say, court hears, he denies); never state an allegation as fact. Do not call someone a victim or offender unless a court has found it.

@@ -57,6 +57,12 @@ header.mast {
 }
 .mast .date { color: var(--muted); font-size: 14px; margin-left: auto; text-align: right; }
 
+.tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--rule); }
+.tab {
+  font: 600 15px/1 var(--body); letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+  background: none; border: 0; border-bottom: 3px solid transparent; padding: 14px 2px 11px; cursor: pointer;
+}
+.tab[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 .controls { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
 .search {
   width: 100%; font: 400 16px var(--body); color: var(--ink); background: var(--card);
@@ -128,6 +134,11 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
     <h1>Front Pages</h1>
     <div class="date"><span id="today"></span><br><span id="updated">Loading…</span></div>
   </header>
+
+  <nav class="tabs" aria-label="Sections">
+    <button class="tab" id="tab-news" type="button" aria-pressed="true">News</button>
+    <button class="tab" id="tab-sport" type="button" aria-pressed="false">Sport</button>
+  </nav>
 
   <div class="controls">
     <input class="search" id="search" type="search" placeholder="Search the past 36 hours" aria-label="Search stories from the past 36 hours" autocomplete="off">
@@ -497,28 +508,25 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
       else main.appendChild(el("p", "note", "Nothing matches. Try fewer or different words."));
       return;
     }
-    var lead = el("div", "lead"), light = el("div", "lead"), sport = el("div", "lead"), rest = el("div");
+    var onSport = state.tab === "sport";
+    var lead = el("div", "lead"), light = el("div", "lead"), rest = el("div");
     state.data.stories.forEach(function (story) {
+      if (!!story.sport !== onSport) return;
       var node = storyNode(story);
       if (!node) return;
-      if (story.sport) { if (sport.children.length < 10) sport.appendChild(node); }
-      else if (story.light) { if (light.children.length < 8) light.appendChild(node); }
+      if (story.light && !onSport) { if (light.children.length < 8) light.appendChild(node); }
       else (Number(node.dataset.papers) > 1 ? lead : rest).appendChild(node);
     });
     if (lead.children.length) {
-      main.appendChild(el("h2", "section", "Main stories"));
+      main.appendChild(el("h2", "section", onSport ? "Main sport stories" : "Main stories"));
       main.appendChild(lead);
     }
     if (light.children.length) {
       main.appendChild(el("h2", "section", "Lighter side"));
       main.appendChild(light);
     }
-    if (sport.children.length) {
-      main.appendChild(el("h2", "section", "Sport"));
-      main.appendChild(sport);
-    }
     if (rest.children.length) {
-      main.appendChild(el("h2", "section", lead.children.length ? "Also today" : "Today"));
+      main.appendChild(el("h2", "section", onSport ? "More sport" : lead.children.length ? "Also today" : "Today"));
       main.appendChild(rest);
       var extra = Array.prototype.slice.call(rest.children, 25);
       if (extra.length && !state.showAll) {
@@ -530,7 +538,7 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
         main.appendChild(more);
       }
     }
-    if (!lead.children.length && !rest.children.length && !light.children.length && !sport.children.length) {
+    if (!lead.children.length && !rest.children.length && !light.children.length) {
       main.appendChild(el("p", "note", "No stories to show. Turn a paper back on above."));
     }
   }
@@ -550,6 +558,20 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
       (down.length ? "Could not reach this hour: " + down.join(", ") + ". " : "") +
       "Headlines and summaries belong to each paper. Tap a paper's name to read its version on its own site.";
   }
+
+  function showTab(tab) {
+    state.tab = tab;
+    state.showAll = false;
+    document.getElementById("tab-news").setAttribute("aria-pressed", String(tab !== "sport"));
+    document.getElementById("tab-sport").setAttribute("aria-pressed", String(tab === "sport"));
+    if (location.hash !== (tab === "sport" ? "#sport" : "")) {
+      try { history.replaceState(null, "", tab === "sport" ? "#sport" : location.pathname); } catch (e) {}
+    }
+    if (state.data) renderStories();
+  }
+  document.getElementById("tab-news").addEventListener("click", function () { showTab("news"); });
+  document.getElementById("tab-sport").addEventListener("click", function () { showTab("sport"); });
+  if (location.hash === "#sport") showTab("sport");
 
   document.getElementById("search").addEventListener("input", function (event) {
     state.query = event.target.value;
