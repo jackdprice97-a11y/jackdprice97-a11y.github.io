@@ -7,6 +7,7 @@ the papers' own sites.
 
 To add or fix a paper, edit FEEDS below.
 """
+import gzip
 import html
 import json
 import re
@@ -22,7 +23,7 @@ FEEDS = [
     ("bbc", "BBC News", "https://feeds.bbci.co.uk/news/rss.xml"),
     ("guardian", "The Guardian", "https://www.theguardian.com/uk/rss"),
     ("sky", "Sky News", "https://feeds.skynews.com/feeds/rss/home.xml"),
-    ("independent", "The Independent", "https://www.independent.co.uk/news/uk/rss"),
+    ("independent", "The Independent", "https://www.independent.co.uk/rss"),
     ("mail", "Daily Mail", "https://www.dailymail.co.uk/news/index.rss"),
     ("standard", "The Standard", "https://www.standard.co.uk/news/rss"),
     ("mirror", "The Mirror", "https://www.mirror.co.uk/news/?service=rss"),
@@ -45,7 +46,12 @@ SKIP_TITLE = re.compile(
     r"\b(love island|strictly|i'm a celeb|im a celeb|big brother|bake off|traitors|"
     r"towie|x factor|eastenders|coronation street|corrie|emmerdale|hollyoaks|"
     r"kardashian|jenner|red carpet|showbiz|celebrity|celeb|reality star|influencer|"
-    r"bikini|flaunts|sizzles|stuns in|shows off|horoscope|best deals|black friday)\b",
+    r"bikini|flaunts|sizzles|stuns in|shows off|horoscope|best deals|black friday|"
+    # dating and relationship gossip
+    r"dating|romance|romantic|loved-up|loved up|new beau|new flame|new man|new woman|"
+    r"pda|cosy|cosies up|date night|split from|splits from|break-up|breakup|"
+    r"rekindles?|reunites? with ex|marriage woes|love life|love triangle|heartbreak|"
+    r"baby bump|baby joy|engagement ring|honeymoon)\b",
     re.I,
 )
 
@@ -134,7 +140,10 @@ def fetch(url):
         },
     )
     with urllib.request.urlopen(request, timeout=25) as response:
-        return response.read()
+        data = response.read()
+    if data[:2] == b"\x1f\x8b":  # some sites send gzip without being asked
+        data = gzip.decompress(data)
+    return data.lstrip(b"\xef\xbb\xbf \t\r\n")
 
 
 def words(title):
