@@ -70,7 +70,7 @@ SOURCE_CHARS = 600      # longer extract kept as source material for writing cop
 # Straplines: two caption lines per story, as on a TV news channel.
 STRAP_TOP = 43          # most characters on the top line
 STRAP_BOTTOM = 75       # most characters on the bottom line
-STRAP_STYLE = 3         # raise this after changing the brief: every strap is rewritten
+STRAP_STYLE = 4         # raise this after changing the brief: every strap is rewritten
 STRAP_MODEL_MAIN = "claude-opus-5-5"    # stories several papers carry: the best writer
 STRAP_MODEL_REST = "claude-sonnet-5-5"  # everything else: fast and cheaper
 STRAP_BATCH_MAIN, STRAP_BATCH_REST = 10, 20  # stories per request
@@ -305,7 +305,8 @@ For each numbered story below, write:
 House style:
 - Present tense and active voice wherever it applies ("PM announces", "Police arrest man", "Court hears"). Use the past only for a completed event that needs it ("after crash killed three").
 - Each line is a single clear statement, direct and punchy, in the manner of a rolling news channel strap. No semicolons, ever. Do not bolt two fragments together: join ideas with "as", "after", "with", "amid" or a comma, or drop the lesser fact.
-- The two lines must not repeat each other's words or facts. Read together, they tell the whole story to someone who has not heard it.
+- The bottom line gives the context that makes the top line make sense. It says who the people are and what the organisations are, in a few words (the NFL great, Championship club Birmingham City, the Little Britain comedian), and adds the key detail. Assume the viewer has never heard of anyone in the story. A bare label such as "Championship club" or "the firm" with no name is not enough: name it.
+- The bottom line must not simply restate the top line's point in other words. It may name the subject again where that is the clearest way to give context.
 - Clarity comes first. A viewer glancing up with no background must understand each line at once. Say plainly what was said, done or decided: write "says UK should rejoin EU in the long term", never "goes further than the PM". No comparisons, allusions or references that only make sense if you already know the story.
 - The bottom line must stand on its own. Never refer back to the top line's subject with a pronoun (he, she, they, it, his, her, their): use a describing word instead, as a news writer would, such as the comedian, the author, the minister, the 41-year-old, the club or the company, or use the name again.
 - Give people their role the first time they appear ("Scottish Labour leader Michael Marra"), and do not put a second person in the line unless the story is about them too.
@@ -316,6 +317,7 @@ House style:
 - Use only the facts given. Attribute anything alleged, claimed or unproven (police say, court hears, he denies); never state an allegation as fact. Do not call someone a victim or offender unless a court has found it.
 - Write the United States as U.S. (with full stops), never US.
 - Prime Minister can be shortened to PM when space is tight.
+- Headline style: never open a line with "The", "A" or "An" (write "Comedian denies claims", not "The comedian denies claims"), and drop articles elsewhere wherever a headline would.
 - Plain sentence case, British spelling, numerals for numbers, no full stop at the end, no emoji. Use a name a viewer will recognise.
 - Count every character including spaces. Never go over either limit. Shorter is fine.
 
@@ -325,7 +327,7 @@ Stories:
 {stories}"""
 
 
-STRAP_FIX_PROMPT = """These TV news straplines break house rules (too long, or they use a semicolon). Rewrite each one so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; use no semicolons, keep each line a single flowing statement, never use a pronoun (he, she, they, it) for the subject, keep the present tense, the facts, the attribution of anything alleged, and U.S. written with full stops, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
+STRAP_FIX_PROMPT = """These TV news straplines break house rules (too long, or they use a semicolon). Rewrite each one so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; use no semicolons, keep each line a single flowing statement, never use a pronoun (he, she, they, it) for the subject, never open a line with "The", "A" or "An", keep the present tense, the facts, the attribution of anything alleged, and U.S. written with full stops, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
 
 Reply with only a JSON array: [{{"n": 0, "top": "...", "bottom": "..."}}]
 
@@ -335,6 +337,10 @@ Reply with only a JSON array: [{{"n": 0, "top": "...", "bottom": "..."}}]
 def house_style(text):
     text = re.sub(r"\s+", " ", str(text)).strip()
     text = re.sub(r"\bUS\b(?!\.)", "U.S.", text)  # house style: U.S., never US
+    opening = re.match(r"(?:The|A|An) (?=\S)", text)  # headline style: no article to open a line
+    if opening:
+        rest = text[opening.end():]
+        text = rest[0].upper() + rest[1:]
     return text[:-1] if text.endswith(".") and not text.endswith("U.S.") else text
 
 
@@ -457,6 +463,7 @@ def add_straps(data, target):
         strap = next((saved[v["u"]] for v in story["versions"] if v["u"] in saved), None)
         is_main = len(story["versions"]) > 1
         if strap:
+            strap["top"], strap["bottom"] = house_style(strap["top"]), house_style(strap["bottom"])
             story["strap"] = strap
             if is_main and strap.get("by") != "main":
                 main_todo.append(story)  # now a main story: give it the best writer
