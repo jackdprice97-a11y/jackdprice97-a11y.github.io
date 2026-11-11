@@ -318,7 +318,7 @@ House style:
 - Write the United States as U.S. (with full stops), never US.
 - Prime Minister can be shortened to PM when space is tight.
 - Headline style throughout: no "the", "a" or "an" anywhere in either line. Write "Comedian denies claims", not "The comedian denies claims", and "Police question 41-year-old in London", not "Police question the 41-year-old in London". Keep an article only where it is part of a name or title, or the line would be wrong without it ("£36bn a year").
-- Numbers: write one to nine as words ("seven taken to hospital", "daughter, eight") and 10 and above as numerals. Keep numerals for scores (4-1), money (£5m), percentages, dates, times and measurements.
+- Numbers: write one to nine as words ("seven taken to hospital") and 10 and above as numerals. Ages are always numerals, whatever the age ("daughter, 8", "boy aged 5", "father, 82"). Keep numerals too for scores (4-1), money (£5m), percentages, dates, times and measurements.
 - Plain sentence case, British spelling, no full stop at the end, no emoji. Use a name a viewer will recognise.
 - Count every character including spaces. Never go over either limit. Shorter is fine.
 
