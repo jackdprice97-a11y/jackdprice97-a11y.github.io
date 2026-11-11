@@ -519,14 +519,32 @@ def front_pages(data, target, key):
     except (OSError, ValueError):
         pass
     flags, review_url = previous.get("flags", {}), previous.get("url", "")
+    review_date = previous.get("date", "")
     try:
         index = fetch(PAPERS_INDEX).decode("utf-8", "replace")
         links = re.findall(r'href="(/news/articles/[a-z0-9]+)"', index)
         print(f"front pages: {len(links)} article links on the papers page")
-        if links:
-            url = "https://www.bbc.co.uk" + links[0]
-            if url != review_url and key:
-                page = fetch(url).decode("utf-8", "replace")
+        # the newest review is not always the first link: read the dates of the first few
+        best = None
+        for link in list(dict.fromkeys(links))[:4]:
+            url = "https://www.bbc.co.uk" + link
+            known = parse_date(review_date) if url == review_url else None
+            if known:  # already read this one: no need to fetch it again
+                if best is None or known > best[0]:
+                    best = (known, url, None)
+                continue
+            page = fetch(url).decode("utf-8", "replace")
+            stamp = re.search(r'"datePublished":"([^"]+)"', page) or re.search(r'<time[^>]*datetime="([^"]+)"', page)
+            when = parse_date(stamp.group(1)) if stamp else None
+            print(f"front pages: {url} published {when}")
+            if when and (best is None or when > best[0]):
+                best = (when, url, page)
+        if best and (datetime.now(timezone.utc) - best[0]).total_seconds() > 26 * 3600:
+            print("front pages: newest review is over a day old, clearing flags")
+            flags, review_url, best = {}, "", None
+        if best and best[2] and key:
+            when, url, page = best
+            if True:
                 paragraphs = [clean(p) for p in re.findall(r"<p[^>]*>(.*?)</p>", page, re.S)]
                 review = " ".join(p for p in paragraphs if len(p) > 40)[:9000]
                 title = clean(" ".join(re.findall(r"<h1[^>]*>(.*?)</h1>", page, re.S)[:1]))
@@ -558,7 +576,7 @@ def front_pages(data, target, key):
                         if 0 <= n < len(stories) and papers:
                             for version in stories[n]["versions"]:
                                 flags[version["u"]] = papers
-                    review_url = url
+                    review_url, review_date = url, when.isoformat(timespec="minutes")
                     print(f"front pages: flagged {len({tuple(v) for v in flags.values()})} stories")
     except Exception as error:  # the page works without the flags
         print(f"FAIL  front pages: {type(error).__name__}: {error}", file=sys.stderr)
@@ -567,7 +585,7 @@ def front_pages(data, target, key):
         papers = next((flags[v["u"]] for v in story["versions"] if v["u"] in flags), None)
         if papers:
             story["front"] = papers
-    data["front"] = {"url": review_url, "flags": flags}
+    data["front"] = {"url": review_url, "date": review_date, "flags": flags}
 
 
 def main():
