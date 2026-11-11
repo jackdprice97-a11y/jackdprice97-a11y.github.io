@@ -94,6 +94,10 @@ h2.section {
 .lead ~ .lead .story h3 { font-size: 20px; font-weight: 600; }
 .story h3 a { text-decoration: none; }
 .story h3 a:hover { text-decoration: underline; text-decoration-thickness: 1px; }
+.front {
+  align-self: flex-start; font: 600 11px/1 var(--body); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--paper); background: var(--ink); padding: 5px 7px; border-radius: 3px;
+}
 .story p { margin: 0; color: var(--muted); font-size: 15px; }
 .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .meta .when { margin-right: 4px; font-variant-numeric: tabular-nums; }
@@ -116,7 +120,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .55); }
 .panel-headline { font: 600 19px/1.25 var(--display); margin: 10px 0; }
 .copytext { font: 400 16px/1.55 var(--body); background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 4px 14px; margin-top: 10px; }
 .copytext p { margin: 10px 0; color: var(--ink); }
-.copytext[hidden], .chip[hidden], .keyform[hidden], .linkish[hidden] { display: none; }
+.front[hidden], .copytext[hidden], .chip[hidden], .keyform[hidden], .linkish[hidden] { display: none; }
 .keyform { font-size: 13px; color: var(--muted); margin-top: 10px; }
 .keyform .search { flex: 1 1 180px; width: auto; }
 .linkish { background: none; border: 0; padding: 8px 0 0; color: var(--muted); font: 400 12px var(--body); text-decoration: underline; cursor: pointer; }
@@ -157,6 +161,7 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
     <h2 class="section" id="panel-title">Story</h2>
     <button class="chip" id="panel-close" type="button">Close</button>
   </div>
+  <div class="front" id="panel-front" hidden></div>
   <p class="panel-headline" id="panel-headline"></p>
   <div class="meta" id="panel-papers"></div>
 
@@ -251,6 +256,12 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
     state.names = names;
   }
 
+  // e.g. "Tuesday's front pages: Mail, Times", from the day the papers review came out
+  function frontLabel(story) {
+    var date = state.data.front && state.data.front.date ? new Date(state.data.front.date) : null;
+    var day = date && !isNaN(date) ? date.toLocaleDateString("en-GB", { weekday: "long" }) + "'s front" : "Front";
+    return day + (story.front.length > 1 ? " pages: " : " page: ") + story.front.join(", ");
+  }
   function storyNode(story) {
     var versions = story.versions.filter(function (v) { return !state.off[v.s]; });
     if (!versions.length) return null;
@@ -266,6 +277,7 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
     });
     heading.appendChild(link);
     node.appendChild(heading);
+    if (story.front) node.insertBefore(el("div", "front", frontLabel(story)), heading);
     if (shown.d) node.appendChild(el("p", null, shown.d));
     var meta = el("div", "meta");
     meta.appendChild(el("span", "when", ago(story.time)));
@@ -425,6 +437,8 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
   function openPanel(story, versions) {
     state.open = story;
     $("panel-headline").textContent = versions[0].t;
+    $("panel-front").textContent = story.front ? frontLabel(story) : "";
+    $("panel-front").hidden = !story.front;
     $("made-status").textContent = "";
     $("keyform").hidden = true;
     var papers = $("panel-papers");
@@ -517,6 +531,7 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
       var node = storyNode(story);
       if (!node) return;
       if (story.light && !onSport) { if (light.children.length < 8) light.appendChild(node); }
+      else if (story.front) lead.insertBefore(node, lead.querySelector(".story:not(.onfront)")), node.classList.add("onfront");
       else (Number(node.dataset.papers) > 1 ? lead : rest).appendChild(node);
     });
     if (lead.children.length) {
