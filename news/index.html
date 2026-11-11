@@ -285,6 +285,7 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
   var WRITER = "claude-opus-5-5";
   function houseStyle(text) {
     text = String(text || "").replace(/\s+/g, " ").trim().replace(/\bUS\b(?!\.)/g, "U.S.");
+    text = text.replace(/\b[Tt]he (?=\d)/g, "");
     text = text.replace(/^(?:The|A|An) (?=\S)/, "");  // headline style: no article to open a line
     text = text.charAt(0).toUpperCase() + text.slice(1);
     return /\.$/.test(text) && !/U\.S\.$/.test(text) ? text.slice(0, -1) : text;
@@ -353,7 +354,7 @@ footer { color: var(--muted); font-size: 13px; padding-top: 20px; }
       strap = readStrap(await askWriter(key,
         "This TV news strapline breaks house rules (too long, or it uses a semicolon). Rewrite it so that top is at most " +
         (LIMIT.top - 2) + " characters and bottom is at most " + (LIMIT.bottom - 3) + " characters, counting spaces. " +
-        "Cut words or rephrase. Use no semicolons, no pronoun for the subject, no \"The\", \"A\" or \"An\" to open a line, keep the present tense, the facts and the " +
+        "Cut words or rephrase. Use no semicolons, no pronoun for the subject, no \"the\", \"a\" or \"an\" anywhere unless part of a name, keep the present tense, the facts and the " +
         "attribution of anything alleged, and keep the two lines from repeating each other.\n\n" +
         "top (" + strap.top.length + " characters): " + strap.top + "\n" +
         "bottom (" + strap.bottom.length + " characters): " + strap.bottom + "\n\n" +
