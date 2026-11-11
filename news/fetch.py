@@ -10,6 +10,7 @@ To add or fix a paper, edit FEEDS below.
 import gzip
 import html
 import json
+import os
 import re
 import sys
 import urllib.request
@@ -493,6 +494,82 @@ def add_straps(data, target):
     print(f"Wrote {written} new straplines")
 
 
+PAPERS_INDEX = "https://www.bbc.co.uk/news/blogs/the_papers"
+
+FRONT_PROMPT = """Below is a review of today's British newspaper front pages, then a numbered list of news stories.
+
+For each numbered story that the review says is on a newspaper's front page, list the newspapers that carry it there. Match on the story itself, not on a loose theme: the review must describe that same event or announcement as being on that paper's front page. Leave out any story the review does not place on a front page.
+
+Use short newspaper names: Times, Telegraph, Guardian, Mail, Express, Mirror, Sun, i, FT, Star, Metro, Independent.
+
+Reply with only a JSON array: [{{"n": 0, "papers": ["Mail", "Times"]}}]. If nothing matches, reply [].
+
+REVIEW
+{review}
+
+STORIES
+{stories}"""
+
+
+def front_pages(data, target, key):
+    """Flag stories that are on newspaper front pages, using the BBC's nightly review."""
+    previous = {}
+    try:
+        previous = json.loads(target.read_text(encoding="utf-8")).get("front", {})
+    except (OSError, ValueError):
+        pass
+    flags, review_url = previous.get("flags", {}), previous.get("url", "")
+    try:
+        index = fetch(PAPERS_INDEX).decode("utf-8", "replace")
+        links = re.findall(r'href="(/news/articles/[a-z0-9]+)"', index)
+        print(f"front pages: {len(links)} article links on the papers page")
+        if links:
+            url = "https://www.bbc.co.uk" + links[0]
+            if url != review_url and key:
+                page = fetch(url).decode("utf-8", "replace")
+                paragraphs = [clean(p) for p in re.findall(r"<p[^>]*>(.*?)</p>", page, re.S)]
+                review = " ".join(p for p in paragraphs if len(p) > 40)[:9000]
+                title = clean(" ".join(re.findall(r"<h1[^>]*>(.*?)</h1>", page, re.S)[:1]))
+                print(f"front pages: review {url} | {title!r} | {len(review)} characters")
+                if len(review) > 600:
+                    stories = [s for s in data["stories"] if not s.get("sport")][:220]
+                    listing = "\n".join(
+                        f"{n}. " + " | ".join(v["t"] for v in story["versions"][:3]) for n, story in enumerate(stories)
+                    )
+                    body = {
+                        "model": STRAP_MODEL_MAIN,
+                        "max_tokens": 16000,
+                        "thinking": {"type": "adaptive"},
+                        "output_config": {"effort": "low"},
+                        "messages": [{"role": "user", "content": FRONT_PROMPT.format(review=review, stories=listing)}],
+                    }
+                    request = urllib.request.Request(
+                        "https://api.anthropic.com/v1/messages",
+                        data=json.dumps(body).encode(),
+                        headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                    )
+                    with urllib.request.urlopen(request, timeout=300) as response:
+                        reply = json.loads(response.read())
+                    text = "".join(block.get("text", "") for block in reply.get("content", []))
+                    found = re.search(r"\[.*\]", text, re.S)
+                    flags = {}
+                    for entry in json.loads(found.group(0), strict=False) if found else []:
+                        n, papers = int(entry["n"]), [str(p)[:20] for p in entry.get("papers", [])][:8]
+                        if 0 <= n < len(stories) and papers:
+                            for version in stories[n]["versions"]:
+                                flags[version["u"]] = papers
+                    review_url = url
+                    print(f"front pages: flagged {len({tuple(v) for v in flags.values()})} stories")
+    except Exception as error:  # the page works without the flags
+        print(f"FAIL  front pages: {type(error).__name__}: {error}", file=sys.stderr)
+
+    for story in data["stories"]:
+        papers = next((flags[v["u"]] for v in story["versions"] if v["u"] in flags), None)
+        if papers:
+            story["front"] = papers
+    data["front"] = {"url": review_url, "flags": flags}
+
+
 def main():
     now = datetime.now(timezone.utc)
     results = []
@@ -511,6 +588,7 @@ def main():
         print("No stories fetched; keeping the previous data.json", file=sys.stderr)
         return 1
     add_straps(data, target)
+    front_pages(data, target, os.environ.get("ANTHROPIC_API_KEY", "").strip())
     # stamp the finish time: writing straplines can take minutes, and the page shows this
     data["updated"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
     data["brief"] = STRAP_PROMPT.format(top=STRAP_TOP - 4, bottom=STRAP_BOTTOM - 6, stories="{stories}")
