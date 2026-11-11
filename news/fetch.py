@@ -70,7 +70,7 @@ SOURCE_CHARS = 600      # longer extract kept as source material for writing cop
 # Straplines: two caption lines per story, as on a TV news channel.
 STRAP_TOP = 43          # most characters on the top line
 STRAP_BOTTOM = 75       # most characters on the bottom line
-STRAP_STYLE = 4         # raise this after changing the brief: every strap is rewritten
+STRAP_STYLE = 5         # raise this after changing the brief: every strap is rewritten
 STRAP_MODEL_MAIN = "claude-opus-5-5"    # stories several papers carry: the best writer
 STRAP_MODEL_REST = "claude-sonnet-5-5"  # everything else: fast and cheaper
 STRAP_BATCH_MAIN, STRAP_BATCH_REST = 10, 20  # stories per request
@@ -317,8 +317,9 @@ House style:
 - Use only the facts given. Attribute anything alleged, claimed or unproven (police say, court hears, he denies); never state an allegation as fact. Do not call someone a victim or offender unless a court has found it.
 - Write the United States as U.S. (with full stops), never US.
 - Prime Minister can be shortened to PM when space is tight.
-- Headline style: never open a line with "The", "A" or "An" (write "Comedian denies claims", not "The comedian denies claims"), and drop articles elsewhere wherever a headline would.
-- Plain sentence case, British spelling, numerals for numbers, no full stop at the end, no emoji. Use a name a viewer will recognise.
+- Headline style throughout: no "the", "a" or "an" anywhere in either line. Write "Comedian denies claims", not "The comedian denies claims", and "Police question 41-year-old in London", not "Police question the 41-year-old in London". Keep an article only where it is part of a name or title, or the line would be wrong without it ("£36bn a year").
+- Numbers: write one to nine as words ("seven taken to hospital") and 10 and above as numerals. Ages are always numerals, whatever the age ("daughter, 8", "boy aged 5", "father, 82"). Keep numerals too for scores (4-1), money (£5m), percentages, dates, times and measurements.
+- Plain sentence case, British spelling, no full stop at the end, no emoji. Use a name a viewer will recognise.
 - Count every character including spaces. Never go over either limit. Shorter is fine.
 
 Reply with only a JSON array, one object per story: [{{"n": 0, "top": "...", "bottom": "..."}}]
@@ -327,7 +328,7 @@ Stories:
 {stories}"""
 
 
-STRAP_FIX_PROMPT = """These TV news straplines break house rules (too long, or they use a semicolon). Rewrite each one so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; use no semicolons, keep each line a single flowing statement, never use a pronoun (he, she, they, it) for the subject, never open a line with "The", "A" or "An", keep the present tense, the facts, the attribution of anything alleged, and U.S. written with full stops, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
+STRAP_FIX_PROMPT = """These TV news straplines break house rules (too long, or they use a semicolon). Rewrite each one so that top is at most {top} characters and bottom is at most {bottom} characters, counting spaces. Cut words or rephrase; use no semicolons, keep each line a single flowing statement, never use a pronoun (he, she, they, it) for the subject, use no "the", "a" or "an" anywhere unless part of a name, keep the present tense, the facts, the attribution of anything alleged, and U.S. written with full stops, and keep the two lines from repeating each other. A line already within its limit can stay as it is. Keep each number as given.
 
 Reply with only a JSON array: [{{"n": 0, "top": "...", "bottom": "..."}}]
 
@@ -337,6 +338,7 @@ Reply with only a JSON array: [{{"n": 0, "top": "...", "bottom": "..."}}]
 def house_style(text):
     text = re.sub(r"\s+", " ", str(text)).strip()
     text = re.sub(r"\bUS\b(?!\.)", "U.S.", text)  # house style: U.S., never US
+    text = re.sub(r"\b[Tt]he (?=\d)", "", text)  # "the 41-year-old" becomes "41-year-old"
     opening = re.match(r"(?:The|A|An) (?=\S)", text)  # headline style: no article to open a line
     if opening:
         rest = text[opening.end():]
