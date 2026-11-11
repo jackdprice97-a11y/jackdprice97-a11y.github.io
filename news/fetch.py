@@ -70,7 +70,7 @@ SOURCE_CHARS = 600      # longer extract kept as source material for writing cop
 # Straplines: two caption lines per story, as on a TV news channel.
 STRAP_TOP = 43          # most characters on the top line
 STRAP_BOTTOM = 75       # most characters on the bottom line
-STRAP_STYLE = 4         # raise this after changing the brief: every strap is rewritten
+STRAP_STYLE = 5         # raise this after changing the brief: every strap is rewritten
 STRAP_MODEL_MAIN = "claude-opus-5-5"    # stories several papers carry: the best writer
 STRAP_MODEL_REST = "claude-sonnet-5-5"  # everything else: fast and cheaper
 STRAP_BATCH_MAIN, STRAP_BATCH_REST = 10, 20  # stories per request
